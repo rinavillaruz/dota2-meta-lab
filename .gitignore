@@ -1,0 +1,9 @@
+# .gitignore
+.env
+
+# macOS system files
+**/.DS_Store
+
+# Local data and model storage (not tracked by Git)
+/data/
+/models/

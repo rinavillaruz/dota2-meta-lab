@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-training
+  namespace: ml-pipeline
+spec:
+  backoffLimit: 3  # Retry up to 3 times if job fails
+  template:
+    spec:
+      nodeSelector:
+        workload-type: ml-training
+      containers:
+        - name: trainer
+          image: tensorflow/tensorflow:latest
+          command: 
+            - python
+            - /app/train.py
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          volumeMounts:
+            - name: training-data
+              mountPath: /data/training
+              readOnly: true
+            - name: model-output
+              mountPath: /models
+      volumes:
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: ml-training-data
+        - name: model-output
+          persistentVolumeClaim:
+            claimName: model-artifacts
+      restartPolicy: OnFailure
