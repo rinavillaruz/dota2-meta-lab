@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mlApi.name }}
+  namespace: {{ .Values.mlApi.namespace }}
+spec:
+  selector:
+    app: {{ .Values.mlApi.name }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.mlApi.service.port }}
+      targetPort: {{ .Values.mlApi.service.targetPort }}
+      name: http
+  type: {{ .Values.mlApi.service.type }}

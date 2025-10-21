@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.mlTraining.pvc.name }}
+  namespace: {{ .Values.mlTraining.namespace }}
+spec:
+  accessModes:
+    {{- range .Values.mlTraining.pvc.accessModes }}
+    - {{ . }}
+    {{- end }}
+  storageClassName: {{ .Values.storage.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.mlTraining.pvc.size }}

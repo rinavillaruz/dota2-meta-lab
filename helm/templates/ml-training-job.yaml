@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.mlTraining.name }}
+  namespace: {{ .Values.mlTraining.namespace }}
+spec:
+  backoffLimit: {{ .Values.mlTraining.backoffLimit }}
+  template:
+    spec:
+      {{- if .Values.mlTraining.nodeSelector.enabled }}
+      nodeSelector:
+        workload-type: {{ .Values.mlTraining.nodeSelector.workloadType }}
+      {{- end }}
+      containers:
+        - name: trainer
+          image: {{ .Values.mlTraining.image.repository }}:{{ .Values.mlTraining.image.tag }}
+          command: 
+            {{- range .Values.mlTraining.command }}
+            - {{ . }}
+            {{- end }}
+          resources:
+            requests:
+              memory: {{ .Values.mlTraining.resources.requests.memory }}
+              cpu: {{ .Values.mlTraining.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.mlTraining.resources.limits.memory }}
+              cpu: {{ .Values.mlTraining.resources.limits.cpu }}
+          volumeMounts:
+            - name: training-data
+              mountPath: /data/training
+              readOnly: true
+            - name: model-output
+              mountPath: /models
+      volumes:
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.mlTraining.pvc.name }}
+        - name: model-output
+          persistentVolumeClaim:
+            claimName: {{ .Values.models.pvc.name }}
+      restartPolicy: {{ .Values.mlTraining.restartPolicy }}

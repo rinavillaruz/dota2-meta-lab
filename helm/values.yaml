@@ -1,0 +1,134 @@
+# Global settings
+global:
+  namespace: data
+    
+# Storage configuration
+storage:
+  createStorageClass: true  # Set to false if storage class already exists
+  storageClassName: standard
+  isDefault: true
+  provisioner: rancher.io/local-path
+  volumeBindingMode: WaitForFirstConsumer
+  reclaimPolicy: Delete
+  allowVolumeExpansion: true
+
+# MongoDB configuration
+mongodb:
+  name: mongodb
+  namespace: data
+  replicas: 3
+  image:
+    repository: mongo
+    tag: "7.0"
+  containerPort: 27017
+  service:
+    port: 27017
+    targetPort: 27017
+  secret:
+    name: mongodb-secret
+  nodeSelector:
+    enabled: true
+    workloadType: data-processing
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+  storage:
+    storageClassName: standard
+    size: 20Gi
+
+# Redis configuration
+redis:
+  name: redis
+  namespace: data
+  replicas: 1
+  image:
+    repository: redis
+    tag: "7-alpine"
+  containerPort: 6379
+  service:
+    port: 6379
+  nodeSelector:
+    enabled: true
+    workloadType: data-processing
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  storage:
+    hostPath: /data/redis
+
+# ML API configuration
+mlApi:
+  name: ml-api
+  namespace: ml-pipeline
+  replicas: 3
+  image:
+    repository: nginx
+    tag: latest
+    pullPolicy: IfNotPresent
+  containerPort: 80
+  modelPath: "/models"
+  service:
+    port: 80
+    targetPort: 80
+    type: ClusterIP
+  nodeSelector:
+    enabled: true
+    workloadType: api-services
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+  livenessProbe:
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+
+# ML Training Job configuration
+mlTraining:
+  name: model-training
+  namespace: ml-pipeline
+  backoffLimit: 3
+  image:
+    repository: tensorflow/tensorflow
+    tag: latest
+  command:
+    - python
+    - /app/train.py
+  nodeSelector:
+    enabled: true
+    workloadType: ml-training
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
+  restartPolicy: OnFailure
+  pvc:
+    name: ml-training-data
+    accessModes:
+      - ReadWriteOnce
+    size: 50Gi
+
+# Models storage configuration
+models:
+  pvc:
+    name: model-artifacts
+    accessModes:
+      - ReadWriteOnce
+    size: 100Gi

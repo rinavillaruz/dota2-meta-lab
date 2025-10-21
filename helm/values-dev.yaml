@@ -1,0 +1,53 @@
+storage:
+  createStorageClass: false
+
+mongodb:
+  replicas: 3
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+  storage:
+    size: 5Gi
+  nodeSelector:
+    enabled: false
+
+redis:
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+  nodeSelector:
+    enabled: false
+
+mlApi:
+  replicas: 1
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  nodeSelector:
+    enabled: false
+
+mlTraining:
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  pvc:
+    size: 10Gi
+  nodeSelector:
+    enabled: false
+
+models:
+  pvc:
+    size: 20Gi

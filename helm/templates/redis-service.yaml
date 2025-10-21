@@ -1,0 +1,10 @@
+apiVersion: v1 
+kind: Service
+metadata:
+  name: {{ .Values.redis.name }}
+  namespace: {{ .Values.redis.namespace }}
+spec:
+  selector:
+    app: {{ .Values.redis.name }}
+  ports: 
+    - port: {{ .Values.redis.service.port }}

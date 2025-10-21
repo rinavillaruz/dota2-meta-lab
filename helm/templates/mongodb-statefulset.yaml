@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.mongodb.name }} 
+  namespace: {{ .Values.mongodb.namespace }}
+spec:
+  serviceName: {{ .Values.mongodb.name }} 
+  replicas: {{ .Values.mongodb.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.mongodb.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.mongodb.name }}
+    spec:
+      {{- if .Values.mongodb.nodeSelector.enabled }}
+      nodeSelector:
+        workload-type: data-processing
+      {{- end }}
+      containers:
+        - name: mongodb
+          image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
+          ports:
+            - containerPort: {{ .Values.mongodb.containerPort }}
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: username 
+                  name: {{ .Values.mongodb.secret.name }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password 
+                  name: {{ .Values.mongodb.secret.name }}
+          volumeMounts:
+            - mountPath: /data/db
+              name: data
+          resources:
+            requests:
+              memory: {{ .Values.mongodb.resources.requests.memory }}
+              cpu: {{ .Values.mongodb.resources.requests.cpu }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.mongodb.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.mongodb.storage.size }}
