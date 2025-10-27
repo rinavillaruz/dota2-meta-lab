@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dota2-dev
+  namespace: argocd
+  # Finalizer ensures proper cleanup
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project name (default is fine for now)
+  project: default
+  
+  # Source: Where your Helm chart lives
+  source:
+    # Your GitHub repo
+    repoURL: https://github.com/rinavillaruz/dota2-meta-lab
+    targetRevision: main  # Change to 'master' if that's your default branch
+    path: helm            # Path to Helm chart in repo
+    
+    # Helm-specific configuration
+    helm:
+      # Which values file to use
+      valueFiles:
+        - values-dev.yaml
+  
+  # Destination: Where to deploy
+  destination:
+    # Deploy to the same cluster ArgoCD is running in
+    server: https://kubernetes.default.svc
+    # Target namespace
+    namespace: data
+  
+  # Sync policy: How ArgoCD should manage the app
+  syncPolicy:
+    # Create namespace if it doesn't exist
+    syncOptions:
+      - CreateNamespace=true
+    
+    # Automated sync (GitOps magic!)
+    automated:
+      # Automatically sync when Git changes
+      selfHeal: true
+      # Delete resources that are removed from Git
+      prune: true
+    
+    # Retry configuration
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dota2-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/rinavillaruz/dota2-meta-lab
+    targetRevision: main  # Change to 'master' if needed
+    path: helm
+    helm:
+      valueFiles:
+        - values-prod.yaml
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data
+  
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      selfHeal: true
+      prune: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
