@@ -2,7 +2,7 @@ storage:
   createStorageClass: false
 
 mongodb:
-  replicas: 3
+  replicas: 1
   resources:
     requests:
       memory: "512Mi"
