@@ -27,6 +27,18 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-1
         containerPath: /data
+    # Add port mappings for ArgoCD and other services
+    extraPortMappings:
+      - containerPort: 30080  # ArgoCD HTTP
+        hostPort: 30080
+        protocol: TCP
+      - containerPort: 30443  # ArgoCD HTTPS/gRPC
+        hostPort: 30443
+        protocol: TCP
+      - containerPort: 30090  # Alternative port
+        hostPort: 30090
+        protocol: TCP
+        
   - role: control-plane
     kubeadmConfigPatches:
       - |
@@ -39,6 +51,7 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-2
         containerPath: /data
+        
   - role: control-plane
     kubeadmConfigPatches:
       - |
@@ -51,6 +64,7 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-3
         containerPath: /data
+        
   # Worker 1 - ML Training Workloads
   - role: worker
     labels:
@@ -67,6 +81,7 @@ nodes:
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: "workload-type=ml-training,node-tier=compute-intensive"
+            
   # Worker 2 - API Services
   - role: worker
     labels:
@@ -78,6 +93,7 @@ nodes:
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: "workload-type=api-services,node-tier=web-tier"
+            
   - role: worker
     labels:
       workload-type: data-processing
