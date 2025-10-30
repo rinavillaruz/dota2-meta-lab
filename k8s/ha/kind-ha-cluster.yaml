@@ -27,7 +27,8 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-1
         containerPath: /data
-    # Add port mappings for ArgoCD and other services
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
     extraPortMappings:
       - containerPort: 30080  # ArgoCD HTTP
         hostPort: 30080
@@ -37,6 +38,9 @@ nodes:
         protocol: TCP
       - containerPort: 30090  # Alternative port
         hostPort: 30090
+        protocol: TCP
+      - containerPort: 30808  # Jenkins
+        hostPort: 30808
         protocol: TCP
         
   - role: control-plane
@@ -51,6 +55,8 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-2
         containerPath: /data
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
         
   - role: control-plane
     kubeadmConfigPatches:
@@ -64,6 +70,8 @@ nodes:
     extraMounts:
       - hostPath: ../../data/control-plane-3
         containerPath: /data
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
         
   # Worker 1 - ML Training Workloads
   - role: worker
@@ -75,6 +83,8 @@ nodes:
         containerPath: /data/training
       - hostPath: ../../models
         containerPath: /models
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -87,6 +97,9 @@ nodes:
     labels:
       workload-type: api-services
       node-tier: web-tier
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -103,6 +116,8 @@ nodes:
         containerPath: /data/db
       - hostPath: ../../data/redis
         containerPath: /data/redis
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration

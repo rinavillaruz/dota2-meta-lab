@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    app: jenkins
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      serviceAccountName: jenkins
+      
+      # Security context
+      securityContext:
+        fsGroup: 1000  # Jenkins user ID
+      
+      containers:
+        - name: jenkins
+          image: jenkins/jenkins:lts
+          imagePullPolicy: IfNotPresent
+          
+          # Ports
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 50000
+              name: jnlp
+              protocol: TCP
+          
+          # Environment variables
+          env:
+            # Skip setup wizard (using JCasC instead)
+            - name: JAVA_OPTS
+              value: "-Djenkins.install.runSetupWizard=false"
+            
+            # Jenkins Configuration as Code path
+            - name: CASC_JENKINS_CONFIG
+              value: /var/jenkins_home/casc_configs/jenkins.yaml
+          
+          # Volume mounts
+          volumeMounts:
+            # Persistent storage for Jenkins data
+            - name: jenkins-data
+              mountPath: /var/jenkins_home
+            
+            # Docker socket for building images
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            
+            # Jenkins configuration
+            - name: jenkins-config
+              mountPath: /var/jenkins_home/casc_configs
+          
+          # Resource limits
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+          
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      
+      # Volumes
+      volumes:
+        # Persistent volume for Jenkins data
+        - name: jenkins-data
+          persistentVolumeClaim:
+            claimName: jenkins-pvc
+        
+        # Docker socket from host (for building images)
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        
+        # Jenkins configuration from ConfigMap
+        - name: jenkins-config
+          configMap:
+            name: jenkins-config

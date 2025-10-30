@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-config
+  namespace: jenkins
+  labels:
+    app: jenkins
+data:
+  jenkins.yaml: |
+    jenkins:
+      systemMessage: "Jenkins for Dota2 Meta Lab CI/CD"
+      numExecutors: 2
+      mode: NORMAL
+      
+      # Security configuration
+      securityRealm:
+        local:
+          allowsSignup: false
+          users:
+            - id: "admin"
+              password: "admin"  # Change this after first login!
+      
+      authorizationStrategy:
+        loggedInUsersCanDoAnything:
+          allowAnonymousRead: false
+    
+    # Credentials (will be added via Jenkins UI)
+    credentials:
+      system:
+        domainCredentials:
+          - credentials:
+              - usernamePassword:
+                  scope: GLOBAL
+                  id: "github-credentials"
+                  username: "your-github-username"
+                  password: "your-github-token"
+                  description: "GitHub credentials"
+              - usernamePassword:
+                  scope: GLOBAL
+                  id: "docker-hub-credentials"
+                  username: "your-dockerhub-username"
+                  password: "your-dockerhub-password"
+                  description: "Docker Hub credentials"
+    
+    # Jenkins URL configuration
+    unclassified:
+      location:
+        url: http://localhost:30808/
+    
+    # Pre-configured pipeline job (optional)
+    jobs:
+      - script: >
+          pipelineJob('dota2-meta-lab') {
+            definition {
+              cpsScm {
+                scm {
+                  git {
+                    remote {
+                      url('https://github.com/rinavillaruz/dota2-meta-lab.git')
+                      credentials('github-credentials')
+                    }
+                    branch('*/main')
+                  }
+                }
+                scriptPath('Jenkinsfile')
+              }
+            }
+            triggers {
+              pollSCM {
+                scmpoll_spec('H/5 * * * *')  # Poll every 5 minutes
+              }
+            }
+          }
