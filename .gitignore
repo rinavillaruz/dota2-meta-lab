@@ -7,3 +7,4 @@
 # Local data and model storage (not tracked by Git)
 /data/
 /models/
+/tests/

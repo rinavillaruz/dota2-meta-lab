@@ -137,7 +137,7 @@ echo -e "${BLUE}🎡 Step 4: Deploying with Helm...${NC}"
 
 # Validate Helm chart first
 echo "Validating Helm chart..."
-if helm lint ../helm; then
+if helm lint ../deploy/helm; then
     echo -e "${GREEN}✅ Helm chart validation passed${NC}\n"
 else
     echo -e "${RED}❌ Helm chart validation failed${NC}"
@@ -146,15 +146,15 @@ fi
 
 if helm list -n data | grep -q "dota2-meta-lab-${ENVIRONMENT}"; then
     echo -e "${YELLOW}⚠️  Helm release already exists. Upgrading...${NC}"
-    helm upgrade dota2-meta-lab-${ENVIRONMENT} ../helm \
-      -f ../helm/values.yaml \
-      -f ../helm/values-${ENVIRONMENT}.yaml \
+    helm upgrade dota2-meta-lab-${ENVIRONMENT} ../deploy/helm \
+      -f ../deploy/helm/values.yaml \
+      -f ../deploy/helm/values-${ENVIRONMENT}.yaml \
       --namespace data
 else
     echo "Installing Helm chart..."
-    helm install dota2-meta-lab-${ENVIRONMENT} ../helm \
-      -f ../helm/values.yaml \
-      -f ../helm/values-${ENVIRONMENT}.yaml \
+    helm install dota2-meta-lab-${ENVIRONMENT} ../deploy/helm \
+      -f ../deploy/helm/values.yaml \
+      -f ../deploy/helm/values-${ENVIRONMENT}.yaml \
       --namespace data
 fi
 
@@ -260,7 +260,7 @@ echo "  kubectl logs -n data -l app=redis --tail=50"
 echo "  kubectl logs -n ml-pipeline -l app=ml-api --tail=50"
 echo ""
 echo "Upgrade deployment:"
-echo "  helm upgrade dota2-meta-lab-${ENVIRONMENT} ../helm -f ../helm/values-${ENVIRONMENT}.yaml -n data"
+echo "  helm upgrade dota2-meta-lab-${ENVIRONMENT} ../deploy/helm -f ../deploy/helm/values-${ENVIRONMENT}.yaml -n data"
 echo ""
 echo "Rollback:"
 echo "  helm rollback dota2-meta-lab-${ENVIRONMENT} -n data"

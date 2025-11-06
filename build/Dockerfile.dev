@@ -8,7 +8,7 @@ FROM python:3.11-slim AS data-fetcher
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY buuild/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy data fetching script
@@ -27,7 +27,7 @@ FROM tensorflow/tensorflow:latest AS trainer
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy training scripts
@@ -52,7 +52,7 @@ FROM python:3.11-slim AS api
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
@@ -78,7 +78,7 @@ FROM python:3.11-slim AS development
 WORKDIR /app
 
 # Install development dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir jupyter notebook ipython
 

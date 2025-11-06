@@ -62,7 +62,7 @@ data:
                     branch('*/main')
                   }
                 }
-                scriptPath('Jenkinsfile')
+                scriptPath('ci/Jenkinsfile')
               }
             }
             triggers {

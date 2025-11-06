@@ -32,7 +32,7 @@ pipeline {
                     // Run Python tests
                     sh '''
                         # Install dependencies
-                        pip install -r requirements.txt || true
+                        pip install -r build/requirements.txt || true
                         
                         # Run tests
                         python -m pytest tests/ || true
@@ -96,10 +96,10 @@ pipeline {
                             git config user.name "Jenkins CI"
                             
                             # Update image tag in values file
-                            sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|g' helm/values-dev.yaml
+                            sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|g' deploy/helm/values-dev.yaml
                             
                             # Commit and push
-                            git add helm/values-dev.yaml
+                            git add deploy/helm/values-dev.yaml
                             git commit -m "ci: update image tag to ${env.IMAGE_TAG}" || true
                             git push https://${GIT_TOKEN}@github.com/rinavillaruz/dota2-meta-lab.git HEAD:main
                         """

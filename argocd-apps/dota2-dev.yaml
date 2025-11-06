@@ -15,7 +15,7 @@ spec:
     # Your GitHub repo
     repoURL: https://github.com/rinavillaruz/dota2-meta-lab
     targetRevision: main  # Change to 'master' if that's your default branch
-    path: helm            # Path to Helm chart in repo
+    path: deploy/helm            # Path to Helm chart in repo
     
     # Helm-specific configuration
     helm:

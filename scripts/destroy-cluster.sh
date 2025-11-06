@@ -2,7 +2,7 @@
 
 set -e
 
-echo "🧹 Cleaning up Dota2 Meta Lab deployment (preserving ArgoCD)..."
+echo "🧹 Cleaning up Dota2 Meta Lab deployment..."
 
 # Colors
 GREEN='\033[0;32m'
@@ -21,13 +21,13 @@ ENVIRONMENT=${1:-all}
 echo -e "${BLUE}Environment: ${ENVIRONMENT}${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 1: Remove ArgoCD Applications (but keep ArgoCD itself)
+# Step 1: Remove ArgoCD Applications
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🔍 Step 1: Checking for ArgoCD applications...${NC}"
 if kubectl get namespace argocd &>/dev/null; then
-    echo -e "${YELLOW}⚠️  ArgoCD is installed. Removing managed applications...${NC}"
+    echo -e "${YELLOW}⚠️  ArgoCD is installed. Checking for managed applications...${NC}"
     
-    # Delete ArgoCD applications only (not ArgoCD itself)
+    # Delete ArgoCD applications
     if kubectl get crd applications.argoproj.io &>/dev/null 2>&1; then
         APP_COUNT=$(kubectl get applications -n argocd --no-headers 2>/dev/null | wc -l)
         if [ "$APP_COUNT" -gt 0 ]; then
@@ -40,8 +40,7 @@ if kubectl get namespace argocd &>/dev/null; then
     else
         echo -e "${YELLOW}⚠️  ArgoCD CRD not found, skipping application cleanup${NC}"
     fi
-    
-    echo -e "${GREEN}✅ ArgoCD preserved${NC}\n"
+    echo ""
 else
     echo -e "${YELLOW}⚠️  ArgoCD not installed${NC}\n"
 fi
@@ -81,7 +80,7 @@ fi
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🗑️  Step 3: Deleting application namespaces...${NC}"
 
-NAMESPACES_TO_DELETE=("data" "ml-pipeline" "jenkins")
+NAMESPACES_TO_DELETE=("data" "ml-pipeline")
 DELETED_NAMESPACES=()
 
 for ns in "${NAMESPACES_TO_DELETE[@]}"; do
@@ -101,9 +100,62 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 4: Clean up metrics server (optional)
+# Step 4: Remove Jenkins (Optional)
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}📊 Step 4: Checking for metrics server...${NC}"
+echo -e "${BLUE}🔧 Step 4: Jenkins cleanup...${NC}"
+if kubectl get namespace jenkins &>/dev/null; then
+    echo "Jenkins is installed"
+    read -p "Remove Jenkins? (Y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo "Removing Jenkins..."
+        kubectl delete namespace jenkins --timeout=120s
+        echo -e "${GREEN}✅ Jenkins removed${NC}\n"
+    else
+        echo -e "${YELLOW}ℹ️  Keeping Jenkins${NC}\n"
+    fi
+else
+    echo -e "${GREEN}✅ Jenkins not installed${NC}\n"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 5: Remove ArgoCD (Optional)
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}🔧 Step 5: ArgoCD cleanup...${NC}"
+if kubectl get namespace argocd &>/dev/null; then
+    echo "ArgoCD is installed"
+    read -p "Remove ArgoCD? (Y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo "Removing ArgoCD..."
+        
+        # Uninstall Helm release if it exists
+        if helm list -n argocd 2>/dev/null | grep -q "argocd"; then
+            echo "Uninstalling ArgoCD Helm release..."
+            helm uninstall argocd -n argocd --timeout=120s 2>/dev/null || true
+        fi
+        
+        # Delete namespace
+        kubectl delete namespace argocd --timeout=120s
+        
+        # Clean up CRDs
+        echo "Cleaning up ArgoCD CRDs..."
+        kubectl delete crd applications.argoproj.io --ignore-not-found=true --timeout=60s
+        kubectl delete crd applicationsets.argoproj.io --ignore-not-found=true --timeout=60s
+        kubectl delete crd appprojects.argoproj.io --ignore-not-found=true --timeout=60s
+        
+        echo -e "${GREEN}✅ ArgoCD removed${NC}\n"
+    else
+        echo -e "${YELLOW}ℹ️  Keeping ArgoCD${NC}\n"
+    fi
+else
+    echo -e "${GREEN}✅ ArgoCD not installed${NC}\n"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 6: Clean up metrics server (optional)
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}📊 Step 6: Checking for metrics server...${NC}"
 METRICS_REMOVED=false
 
 if kubectl get deployment metrics-server -n kube-system &>/dev/null; then
@@ -124,7 +176,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 5: Summary
+# Step 7: Summary
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}✅ Cleanup complete!${NC}\n"
 echo "=========================================="
@@ -139,16 +191,26 @@ if [ "$METRICS_REMOVED" = true ]; then
     echo "  ✅ Metrics server"
 fi
 echo ""
-echo "=========================================="
-echo "📝 What was PRESERVED:"
-echo "=========================================="
-echo "  ✅ ArgoCD (namespace and installation)"
-echo "  ⚠️  Kind cluster 'ml-cluster'"
-echo "  ⚠️  Data directories: $PROJECT_ROOT/data/, $PROJECT_ROOT/models/"
-echo ""
+
+# Check what's still installed
+PRESERVED=()
+kubectl get namespace jenkins &>/dev/null && PRESERVED+=("Jenkins")
+kubectl get namespace argocd &>/dev/null && PRESERVED+=("ArgoCD")
+
+if [ ${#PRESERVED[@]} -gt 0 ]; then
+    echo "=========================================="
+    echo "📝 What was PRESERVED:"
+    echo "=========================================="
+    for item in "${PRESERVED[@]}"; do
+        echo "  ✅ $item"
+    done
+    echo "  ⚠️  Kind cluster 'ml-cluster'"
+    echo "  ⚠️  Data directories: $PROJECT_ROOT/data/, $PROJECT_ROOT/models/"
+    echo ""
+fi
 
 # -----------------------------------------------------------------------------
-# Step 6: Delete Kind cluster (optional)
+# Step 8: Delete Kind cluster (optional)
 # -----------------------------------------------------------------------------
 echo "=========================================="
 echo "🔥 Delete Kind Cluster?"
@@ -165,7 +227,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${GREEN}✅ Kind cluster deleted!${NC}\n"
         
         # -----------------------------------------------------------------------------
-        # Step 7: Delete data directories (optional)
+        # Step 9: Delete data directories (optional)
         # -----------------------------------------------------------------------------
         echo "=========================================="
         echo "🗑️  Delete Data Directories?"
@@ -205,11 +267,22 @@ echo ""
 if kind get clusters 2>/dev/null | grep -q "ml-cluster"; then
     echo "📋 Current state:"
     echo "  ✅ Kind cluster 'ml-cluster' is running"
-    echo "  ✅ ArgoCD is still installed and ready to use"
+    
+    # Check what's still running
+    kubectl get namespace jenkins &>/dev/null && echo "  ✅ Jenkins is still installed"
+    kubectl get namespace argocd &>/dev/null && echo "  ✅ ArgoCD is still installed"
+    
     echo ""
     echo "To recreate the application:"
     echo "  cd scripts"
-    echo "  ./deploy-dota2-argocd.sh"
+    
+    # Suggest appropriate command based on what's installed
+    if kubectl get namespace argocd &>/dev/null; then
+        echo "  ./deploy-with-argo.sh"
+    else
+        echo "  ./setup-complete-cicd.sh  # (to reinstall Jenkins + ArgoCD)"
+        echo "  ./deploy-with-argo.sh     # (then deploy your app)"
+    fi
     echo "  or"
     echo "  ./deploy-with-helm.sh dev"
 else
@@ -222,10 +295,12 @@ else
     fi
     echo ""
     echo "To recreate everything:"
-    echo "  1. Recreate Kind cluster:"
-    echo "     ./deploy-with-helm dev"
-    echo "  2. Deploy argo:"
-    echo "     ./deploy-with-argocd.sh"
+    echo "  1. Deploy with helm:"
+    echo "     ./deploy-with-helm.sh"
+    echo "  2. Create cluster and setup CI/CD:"
+    echo "     ./setup-complete-cicd.sh"
+    echo "  3. Deploy your app:"
+    echo "     ./deploy-with-argo.sh"
 fi
 
 echo ""

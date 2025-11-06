@@ -10,8 +10,8 @@ This directory contains ArgoCD Application manifests for the Dota2 Meta Lab proj
 ## How It Works (GitOps)
 
 1. These YAML files define **what** ArgoCD should deploy
-2. They point to the `helm/` directory in this repo
-3. When you change `helm/values-dev.yaml` and push to Git
+2. They point to the `deploy/helm/` directory in this repo
+3. When you change `deploy/helm/values-dev.yaml` and push to Git
 4. ArgoCD automatically detects the change and syncs your cluster
 5. **Git is the source of truth** - your cluster always matches Git
 
@@ -63,11 +63,11 @@ argocd app delete dota2-dev --cascade
 ### Scenario: Update ML API to 3 replicas
 ```bash
 # 1. Edit the values file
-vim helm/values-dev.yaml
+vim deploy/helm/values-dev.yaml
 # Change: mlApi.replicas: 3
 
 # 2. Commit and push
-git add helm/values-dev.yaml
+git add deploy/helm/values-dev.yaml
 git commit -m "Scale ML API to 3 replicas"
 git push
 
@@ -129,6 +129,6 @@ kubectl apply -f argocd-apps/dota2-dev.yaml
 
 - **These files are the source of truth** for your ArgoCD setup
 - Keep them in Git so you can always recreate your deployment
-- ArgoCD watches your `helm/` directory for changes
+- ArgoCD watches your `deploy/helm/` directory for changes
 - Changes to Git → Auto-deployed to cluster (GitOps!)
 - If you delete ArgoCD, just reapply these files to restore

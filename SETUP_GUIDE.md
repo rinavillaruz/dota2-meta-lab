@@ -86,9 +86,11 @@ Your project should look like this:
 ```
 dota2-meta-lab/
 ├── .git/
-├── Jenkinsfile                 # CI/CD pipeline definition
-├── Dockerfile                  # Multi-stage Docker build
-├── requirements.txt            # Python dependencies
+├── ci/
+│   ├── Jenkinsfile            # CI/CD pipeline definition
+├── build
+│   ├── Dockerfile             # Multi-stage Docker build             
+│   ├── requirements.txt       # Python dependencies
 ├── fetch_opendota_data.py     # Data fetching script
 ├── train_model.py             # Model training script
 ├── src/                       # Source code
@@ -114,9 +116,9 @@ dota2-meta-lab/
 
 ```bash
 # Copy the files we created
-cp /path/to/Jenkinsfile ./
-cp /path/to/Dockerfile ./
-cp /path/to/requirements.txt ./
+cp /path/to/ci/Jenkinsfile ./
+cp /path/to/build/Dockerfile ./
+cp /path/to/build/requirements.txt ./
 cp /path/to/fetch_opendota_data.py ./
 cp /path/to/train_model.py ./
 
@@ -140,7 +142,7 @@ git push
    - **Repository URL:** https://github.com/rinavillaruz/dota2-meta-lab.git
    - **Credentials:** Select your GitHub credentials
    - **Branch:** */main
-   - **Script Path:** Jenkinsfile
+   - **Script Path:** ci/Jenkinsfile
 
 5. Save
 
@@ -209,7 +211,7 @@ This fetches:
 python train_model.py
 
 # Or deploy training job via ArgoCD
-kubectl apply -f helm/templates/ml-training-job.yaml
+kubectl apply -f deploy/helm/templates/ml-training-job.yaml
 ```
 
 The model will:

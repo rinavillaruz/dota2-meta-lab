@@ -22,6 +22,63 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo -e "${BLUE}Project Root: ${PROJECT_ROOT}${NC}\n"
 
 # -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
+
+# Function to check if ArgoCD is fully functional
+check_argocd_functional() {
+    local retries=0
+    local max_retries=30
+    
+    echo "Checking ArgoCD status..."
+    
+    # Check if namespace exists
+    if ! kubectl get namespace argocd &>/dev/null; then
+        return 1
+    fi
+    
+    # Check if ArgoCD server pod is running
+    while [ $retries -lt $max_retries ]; do
+        if kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
+            echo -e "${GREEN}✅ ArgoCD server is running${NC}"
+            return 0
+        fi
+        retries=$((retries + 1))
+        if [ $retries -lt $max_retries ]; then
+            echo "Waiting for ArgoCD server to be ready... ($retries/$max_retries)"
+            sleep 2
+        fi
+    done
+    
+    return 1
+}
+
+# Function to check if Jenkins is functional
+# Supports both Helm (app.kubernetes.io/name=jenkins) and Simple (app=jenkins) labels
+check_jenkins_functional() {
+    echo "Checking Jenkins status..."
+    
+    # Check if namespace exists
+    if ! kubectl get namespace jenkins &>/dev/null; then
+        return 1
+    fi
+    
+    # Check if Jenkins pod is running - try Helm label first
+    if kubectl get pods -n jenkins -l app.kubernetes.io/name=jenkins --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
+        echo -e "${GREEN}✅ Jenkins is running (Helm installation)${NC}"
+        return 0
+    fi
+    
+    # Try simple install label
+    if kubectl get pods -n jenkins -l app=jenkins --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
+        echo -e "${GREEN}✅ Jenkins is running (Simple installation)${NC}"
+        return 0
+    fi
+    
+    return 1
+}
+
+# -----------------------------------------------------------------------------
 # Step 1: Install Jenkins
 # -----------------------------------------------------------------------------
 echo "=========================================="
@@ -29,34 +86,69 @@ echo -e "${BLUE}Step 1: Install Jenkins${NC}"
 echo "=========================================="
 echo ""
 
-read -p "Install Jenkins in Kubernetes? (Y/n): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    if [ -f "$SCRIPT_DIR/install-jenkins.sh" ]; then
-        chmod +x "$SCRIPT_DIR/install-jenkins.sh"
-        "$SCRIPT_DIR/install-jenkins.sh"
+# Check if Jenkins is already installed and functional
+if check_jenkins_functional; then
+    echo -e "${GREEN}✅ Jenkins is already installed and running${NC}"
+    read -p "Reinstall Jenkins? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Uninstalling existing Jenkins..."
+        kubectl delete namespace jenkins --ignore-not-found=true
+        kubectl wait --for=delete namespace/jenkins --timeout=60s 2>/dev/null || true
+        
+        if [ -f "$SCRIPT_DIR/install-jenkins.sh" ]; then
+            chmod +x "$SCRIPT_DIR/install-jenkins.sh"
+            "$SCRIPT_DIR/install-jenkins.sh"
+        else
+            echo -e "${RED}❌ install-jenkins.sh not found${NC}"
+            exit 1
+        fi
     else
-        echo -e "${YELLOW}⚠️  install-jenkins.sh not found, skipping${NC}"
+        echo "Using existing Jenkins installation"
     fi
 else
-    echo "Skipping Jenkins installation"
+    read -p "Install Jenkins in Kubernetes? (Y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        if [ -f "$SCRIPT_DIR/install-jenkins.sh" ]; then
+            chmod +x "$SCRIPT_DIR/install-jenkins.sh"
+            "$SCRIPT_DIR/install-jenkins.sh"
+            
+            # Verify installation (give it time to start)
+            echo "Waiting for Jenkins to be ready..."
+            sleep 10
+            
+            if check_jenkins_functional; then
+                echo -e "${GREEN}✅ Jenkins installation successful${NC}"
+            else
+                echo -e "${YELLOW}⚠️  Jenkins pod may still be starting${NC}"
+                echo "Check status with: kubectl get pods -n jenkins"
+                echo "Check logs with: kubectl logs -n jenkins -l app=jenkins"
+            fi
+        else
+            echo -e "${YELLOW}⚠️  install-jenkins.sh not found, skipping${NC}"
+        fi
+    else
+        echo "Skipping Jenkins installation"
+    fi
 fi
 
 echo ""
 
 # -----------------------------------------------------------------------------
-# Step 2: Verify ArgoCD
+# Step 2: Verify/Install ArgoCD
 # -----------------------------------------------------------------------------
 echo "=========================================="
-echo -e "${BLUE}Step 2: Verify ArgoCD${NC}"
+echo -e "${BLUE}Step 2: Verify/Install ArgoCD${NC}"
 echo "=========================================="
 echo ""
 
-if kubectl get namespace argocd &>/dev/null; then
-    echo -e "${GREEN}✅ ArgoCD is installed${NC}"
+# Check if ArgoCD is functional
+if check_argocd_functional; then
+    echo -e "${GREEN}✅ ArgoCD is installed and running${NC}"
     
     # Check if logged in
-    if argocd context &>/dev/null; then
+    if argocd context &>/dev/null 2>&1; then
         echo -e "${GREEN}✅ ArgoCD CLI is logged in${NC}"
     else
         echo -e "${YELLOW}⚠️  Not logged in to ArgoCD${NC}"
@@ -66,14 +158,89 @@ if kubectl get namespace argocd &>/dev/null; then
             if [ -f "$SCRIPT_DIR/argocd-login.sh" ]; then
                 chmod +x "$SCRIPT_DIR/argocd-login.sh"
                 "$SCRIPT_DIR/argocd-login.sh"
+            else
+                echo -e "${YELLOW}⚠️  argocd-login.sh not found${NC}"
+                echo "You can login manually with: argocd login <server>"
             fi
         fi
     fi
 else
-    echo -e "${RED}❌ ArgoCD not found${NC}"
-    echo "Please install ArgoCD first:"
-    echo "  ./install-argocd.sh"
-    exit 1
+    # ArgoCD namespace exists but not functional, or doesn't exist at all
+    if kubectl get namespace argocd &>/dev/null; then
+        echo -e "${YELLOW}⚠️  ArgoCD namespace exists but is not functional${NC}"
+        read -p "Reinstall ArgoCD? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            echo "Cleaning up existing ArgoCD installation..."
+            kubectl delete namespace argocd --ignore-not-found=true
+            
+            # Clean up CRDs
+            kubectl delete crd applications.argoproj.io --ignore-not-found=true
+            kubectl delete crd applicationsets.argoproj.io --ignore-not-found=true
+            kubectl delete crd appprojects.argoproj.io --ignore-not-found=true
+            
+            # Wait for namespace deletion
+            echo "Waiting for namespace deletion..."
+            kubectl wait --for=delete namespace/argocd --timeout=120s 2>/dev/null || true
+            sleep 5
+            
+            # Install ArgoCD
+            if [ -f "$SCRIPT_DIR/install-argocd.sh" ]; then
+                chmod +x "$SCRIPT_DIR/install-argocd.sh"
+                "$SCRIPT_DIR/install-argocd.sh"
+            else
+                echo -e "${RED}❌ install-argocd.sh not found${NC}"
+                exit 1
+            fi
+            
+            # Verify installation
+            if check_argocd_functional; then
+                echo -e "${GREEN}✅ ArgoCD reinstallation successful${NC}"
+            else
+                echo -e "${RED}❌ ArgoCD installation failed${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}❌ ArgoCD is not functional, cannot continue${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}❌ ArgoCD not found${NC}"
+        read -p "Install ArgoCD now? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            if [ -f "$SCRIPT_DIR/install-argocd.sh" ]; then
+                chmod +x "$SCRIPT_DIR/install-argocd.sh"
+                "$SCRIPT_DIR/install-argocd.sh"
+                
+                # Verify installation
+                if check_argocd_functional; then
+                    echo -e "${GREEN}✅ ArgoCD installation successful${NC}"
+                    
+                    # Login
+                    if [ -f "$SCRIPT_DIR/argocd-login.sh" ]; then
+                        echo ""
+                        read -p "Login to ArgoCD now? (Y/n): " -n 1 -r
+                        echo
+                        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                            chmod +x "$SCRIPT_DIR/argocd-login.sh"
+                            "$SCRIPT_DIR/argocd-login.sh"
+                        fi
+                    fi
+                else
+                    echo -e "${RED}❌ ArgoCD installation failed${NC}"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}❌ install-argocd.sh not found${NC}"
+                echo "Please create install-argocd.sh or install ArgoCD manually"
+                exit 1
+            fi
+        else
+            echo -e "${RED}❌ Cannot continue without ArgoCD${NC}"
+            exit 1
+        fi
+    fi
 fi
 
 echo ""
@@ -99,14 +266,19 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     mkdir -p "$PROJECT_ROOT/models"
     
     # Copy files if they exist in script directory
-    [ -f "$SCRIPT_DIR/Jenkinsfile" ] && cp "$SCRIPT_DIR/Jenkinsfile" "$PROJECT_ROOT/"
-    [ -f "$SCRIPT_DIR/Dockerfile" ] && cp "$SCRIPT_DIR/Dockerfile" "$PROJECT_ROOT/"
-    [ -f "$SCRIPT_DIR/requirements.txt" ] && cp "$SCRIPT_DIR/requirements.txt" "$PROJECT_ROOT/"
-    [ -f "$SCRIPT_DIR/fetch_opendota_data.py" ] && cp "$SCRIPT_DIR/fetch_opendota_data.py" "$PROJECT_ROOT/"
-    [ -f "$SCRIPT_DIR/train_model.py" ] && cp "$SCRIPT_DIR/train_model.py" "$PROJECT_ROOT/"
-    [ -f "$SCRIPT_DIR/SETUP_GUIDE.md" ] && cp "$SCRIPT_DIR/SETUP_GUIDE.md" "$PROJECT_ROOT/"
+    files_copied=0
+    [ -f "$SCRIPT_DIR/ci/Jenkinsfile" ] && cp "$SCRIPT_DIR/ci/Jenkinsfile" "$PROJECT_ROOT/" && ((files_copied++))
+    [ -f "$SCRIPT_DIR/build/Dockerfile" ] && cp "$SCRIPT_DIR/build/Dockerfile" "$PROJECT_ROOT/" && ((files_copied++))
+    [ -f "$SCRIPT_DIR/build/requirements.txt" ] && cp "$SCRIPT_DIR/build/requirements.txt" "$PROJECT_ROOT/" && ((files_copied++))
+    [ -f "$SCRIPT_DIR/fetch_opendota_data.py" ] && cp "$SCRIPT_DIR/fetch_opendota_data.py" "$PROJECT_ROOT/" && ((files_copied++))
+    [ -f "$SCRIPT_DIR/train_model.py" ] && cp "$SCRIPT_DIR/train_model.py" "$PROJECT_ROOT/" && ((files_copied++))
+    [ -f "$SCRIPT_DIR/SETUP_GUIDE.md" ] && cp "$SCRIPT_DIR/SETUP_GUIDE.md" "$PROJECT_ROOT/" && ((files_copied++))
     
-    echo -e "${GREEN}✅ Project files copied${NC}"
+    if [ $files_copied -gt 0 ]; then
+        echo -e "${GREEN}✅ $files_copied project file(s) copied${NC}"
+    else
+        echo -e "${YELLOW}⚠️  No project files found to copy${NC}"
+    fi
     
     # Create __init__.py files
     touch "$PROJECT_ROOT/src/__init__.py"
@@ -161,7 +333,7 @@ Thumbs.db
 data/opendota_*/
 *.csv
 *.json
-!helm/**/*.json
+!deploy/helm/**/*.json
 
 # Models
 models/*.h5
@@ -205,10 +377,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [ -f "$PROJECT_ROOT/fetch_opendota_data.py" ]; then
         cd "$PROJECT_ROOT"
         echo "Installing dependencies..."
-        pip install requests || true
+        pip install requests --break-system-packages 2>/dev/null || pip install requests || true
         
         echo "Fetching sample data..."
-        python fetch_opendota_data.py
+        python3 fetch_opendota_data.py || python fetch_opendota_data.py
         
         echo -e "${GREEN}✅ Data fetching test complete${NC}"
     else
@@ -254,7 +426,7 @@ echo ""
 echo "3. Access Jenkins:"
 echo "   http://localhost:30808"
 echo "   Username: admin"
-echo "   Password: admin"
+echo "   Password: admin (or check initial password)"
 echo ""
 echo "4. Access ArgoCD:"
 echo "   http://localhost:30080"
@@ -275,4 +447,20 @@ echo "Setup Guide: $PROJECT_ROOT/SETUP_GUIDE.md"
 echo "OpenDota API: https://docs.opendota.com/"
 echo "Jenkins: http://localhost:30808"
 echo "ArgoCD: http://localhost:30080"
+echo ""
+echo "=========================================="
+echo -e "${BLUE}🔧 Troubleshooting${NC}"
+echo "=========================================="
+echo ""
+echo "View Jenkins pods:"
+echo "  kubectl get pods -n jenkins"
+echo ""
+echo "View Jenkins logs:"
+echo "  kubectl logs -n jenkins -l app=jenkins -f"
+echo ""
+echo "View ArgoCD logs:"
+echo "  kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server"
+echo ""
+echo "Check all pods:"
+echo "  kubectl get pods -A"
 echo ""
