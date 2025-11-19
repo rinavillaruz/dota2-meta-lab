@@ -51,5 +51,6 @@ htmlcov/
 secrets/
 
 # others
+/tmp/
 /tests/
 /scripts/manual.sh
