@@ -4,7 +4,7 @@ pipeline {
     environment {
         // Docker registry settings
         DOCKER_REGISTRY = "docker.io"  // Change to your registry
-        DOCKER_REPO = "yourusername"   // Change to your Docker Hub username
+        DOCKER_REPO = "rinavillaruz"   // Change to your Docker Hub username
         IMAGE_NAME = "dota2-meta-lab"
         
         // Git settings

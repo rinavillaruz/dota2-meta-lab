@@ -1,10 +1,55 @@
-# .gitignore
-.env
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
 
-# macOS system files
-**/.DS_Store
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Local data and model storage (not tracked by Git)
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
 /data/
-/models/
+data/opendota_*/
+*.csv
+*.json
+!deploy/helm/**/*.json
+
+# Models
+models/*.h5
+models/*.pkl
+*.ckpt
+
+# Logs
+logs/
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Kubernetes
+*.kubeconfig
+
+# Secrets
+.env
+secrets/
+
+# others
 /tests/
+/scripts/manual.sh

@@ -1,4 +1,5 @@
 # Multi-stage Dockerfile for Dota2 Meta Lab
+# Updated to use organized src/ structure
 
 # =============================================================================
 # Stage 1: Data Fetcher
@@ -8,15 +9,20 @@ FROM python:3.11-slim AS data-fetcher
 WORKDIR /app
 
 # Install dependencies
-COPY build/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy data fetching script
-COPY fetch_opendota_data.py .
+# Copy organized source code
 COPY src/ ./src/
+COPY scripts/fetch_data.py ./scripts/
 
-# This stage can be used to fetch data
-ENTRYPOINT ["python", "fetch_opendota_data.py"]
+# Set environment variables
+ENV OPENDOTA_API_KEY=""
+ENV OUTPUT_DIR=/data
+ENV LOG_LEVEL=INFO
+
+# This stage fetches data from OpenDota API
+ENTRYPOINT ["python", "scripts/fetch_data.py"]
 
 
 # =============================================================================
@@ -27,21 +33,23 @@ FROM tensorflow/tensorflow:latest AS trainer
 WORKDIR /app
 
 # Install dependencies
-COPY build/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy training scripts
-COPY train_model.py .
+# Copy organized source code
 COPY src/ ./src/
+COPY scripts/train.py ./scripts/
 
 # Set environment variables
-ENV DATA_DIR=/data/training
+ENV DATA_DIR=/data/latest
 ENV MODEL_DIR=/models
 ENV EPOCHS=50
 ENV BATCH_SIZE=32
+ENV NUM_HEROES=130
+ENV LOG_LEVEL=INFO
 
 # This stage trains the model
-ENTRYPOINT ["python", "train_model.py"]
+ENTRYPOINT ["python", "scripts/train.py"]
 
 
 # =============================================================================
@@ -52,12 +60,16 @@ FROM python:3.11-slim AS api
 WORKDIR /app
 
 # Install dependencies
-COPY build/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy application code
 COPY src/ ./src/
 COPY api/ ./api/
+
+# Set environment variables
+ENV MODEL_DIR=/models
+ENV LOG_LEVEL=INFO
 
 # Expose port
 EXPOSE 8080
@@ -78,12 +90,17 @@ FROM python:3.11-slim AS development
 WORKDIR /app
 
 # Install development dependencies
-COPY build/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir jupyter notebook ipython
+    pip install --no-cache-dir jupyter notebook ipython pytest black flake8
 
 # Copy all code
-COPY . .
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY tests/ ./tests/
+COPY api/ ./api/
+COPY data/ ./data/
+COPY models/ ./models/
 
 # Expose ports for Jupyter and API
 EXPOSE 8080 8888

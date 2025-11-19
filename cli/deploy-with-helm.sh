@@ -54,23 +54,6 @@ else
     echo -e "${GREEN}✅ Cluster is ready${NC}\n"
 fi
 
-# Step 1: Check if cluster exists, if not create it
-echo -e "${BLUE}🔍 Step 1: Checking for existing cluster...${NC}"
-if kind get clusters | grep -q "ml-cluster"; then
-    echo -e "${YELLOW}⚠️  Cluster 'ml-cluster' already exists. Skipping creation.${NC}\n"
-else
-    echo -e "${BLUE}🏗️  Creating directories control planes, ml-training, mongodb, redis and models...${NC}"
-    mkdir -p ../data/{control-plane-{1..3},ml-training,mongodb,redis} ../models
-
-    echo -e "${BLUE}🏗️  Creating Kind cluster...${NC}"
-    kind create cluster --config ../k8s/ha/kind-ha-cluster.yaml --name ml-cluster
-    echo -e "${GREEN}✅ Cluster created${NC}\n"
-    
-    echo "⏳ Waiting for cluster to be ready..."
-    kubectl wait --for=condition=Ready nodes --all --timeout=180s
-    echo -e "${GREEN}✅ Cluster is ready${NC}\n"
-fi
-
 # Step 1.5: Install Metrics Server
 echo -e "${BLUE}📊 Step 1.5: Installing Metrics Server...${NC}"
 

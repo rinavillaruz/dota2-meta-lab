@@ -1,0 +1,14 @@
+ArgoCD Connection Information
+=============================
+Generated: Wed 12 Nov 2025 18:54:23 CET
+
+UI URL:    http://localhost:30080
+Username:  admin
+Password:  W9Vy4Zt7j36F7wyn
+
+Service Type: NodePort (persistent)
+
+Quick Commands:
+- List apps:  argocd app list
+- Sync app:   argocd app sync <app-name>
+- Get status: argocd app get <app-name>

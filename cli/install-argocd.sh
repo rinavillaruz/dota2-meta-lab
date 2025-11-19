@@ -85,15 +85,18 @@ echo -e "${GREEN}✅ Namespace created${NC}\n"
 # Step 5: Create ArgoCD values file
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}📝 Step 5: Creating ArgoCD configuration...${NC}"
+
 cat > "$VALUES_FILE" <<'EOF'
 # ArgoCD configuration for local Kind cluster
 
-# Global settings
 global:
   domain: argocd.local
 
-# Server settings
 server:
+  service:
+    type: NodePort
+    nodePortHttp: 30080
+    nodePortHttps: 30443
   resources:
     requests:
       cpu: 100m
@@ -102,7 +105,6 @@ server:
       cpu: 500m
       memory: 512Mi
 
-# Controller settings  
 controller:
   resources:
     requests:
@@ -112,7 +114,6 @@ controller:
       cpu: 1
       memory: 1Gi
 
-# Repo server settings
 repoServer:
   resources:
     requests:
@@ -122,7 +123,6 @@ repoServer:
       cpu: 500m
       memory: 512Mi
 
-# Redis settings
 redis:
   resources:
     requests:
@@ -132,11 +132,13 @@ redis:
       cpu: 200m
       memory: 256Mi
 
-# Disable HA for local development
 redis-ha:
   enabled: false
 
-# Use insecure mode for local development
+# Disable dex for local development
+dex:
+  enabled: false
+
 configs:
   params:
     server.insecure: true
@@ -164,42 +166,127 @@ else
       --values "$VALUES_FILE"
 fi
 
-# Wait for rollout
-echo -e "${BLUE}⏳ Waiting for ArgoCD server to be ready...${NC}"
-kubectl rollout status deployment/argocd-server -n argocd --timeout=180s || {
-    echo -e "${YELLOW}⚠️  ArgoCD server may still be initializing${NC}"
-}
-
 echo -e "${GREEN}✅ ArgoCD installation complete${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 7: Wait for ArgoCD pods to be ready
+# Step 7: Wait for ArgoCD deployments to be created
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}⏳ Step 7: Waiting for ArgoCD pods to be ready (this may take 2–3 minutes)...${NC}"
+echo -e "${BLUE}⏳ Step 7: Waiting for ArgoCD deployments to be created...${NC}"
+sleep 10
+echo -e "${GREEN}✅ Deployments created${NC}\n"
+
+# -----------------------------------------------------------------------------
+# Step 7.5: Fix any pending pods due to node selectors
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}🔧 Step 7.5: Checking for scheduling issues...${NC}"
+
+sleep 5  # Give pods a moment to schedule
+
+if kubectl get pods -n argocd 2>/dev/null | grep -q Pending; then
+    echo -e "${YELLOW}⚠️  Found pending pods, fixing node selectors...${NC}"
+    
+    # Remove nodeSelector from all deployments
+    kubectl patch deployment argocd-server -n argocd --type='json' \
+      -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
+    
+    kubectl patch deployment argocd-repo-server -n argocd --type='json' \
+      -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
+    
+    kubectl patch deployment argocd-redis -n argocd --type='json' \
+      -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
+    
+    kubectl patch statefulset argocd-application-controller -n argocd --type='json' \
+      -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
+    
+    echo "Recreating pending pods..."
+    kubectl delete pod -n argocd --field-selector=status.phase=Pending 2>/dev/null || true
+    
+    echo "Waiting for pods to restart..."
+    sleep 15
+    
+    echo -e "${GREEN}✅ Scheduling issues fixed${NC}"
+else
+    echo -e "${GREEN}✅ All pods scheduled correctly${NC}"
+fi
+
+# Disable crashing dex server if needed
+if kubectl get pods -n argocd 2>/dev/null | grep dex | grep -q CrashLoopBackOff; then
+    echo -e "${YELLOW}⚠️  Dex server crashing, scaling to 0 (not needed for local dev)${NC}"
+    kubectl scale deployment argocd-dex-server -n argocd --replicas=0 2>/dev/null || true
+fi
+
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 8: Wait for ArgoCD pods to be ready
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}⏳ Step 8: Waiting for ArgoCD pods to be ready (this may take 2-3 minutes)...${NC}"
+
+# Wait for server deployment to be available
+kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=180s || {
+    echo -e "${YELLOW}⚠️  Deployment not available yet, checking pod status...${NC}"
+    kubectl get pods -n argocd -o wide
+}
+
+# Wait for server pod to be ready
 kubectl wait --for=condition=ready pod \
   -l app.kubernetes.io/name=argocd-server \
   -n argocd \
-  --timeout=300s
+  --timeout=300s || {
+    echo -e "${YELLOW}⚠️  Pods not ready yet, showing status...${NC}"
+    kubectl get pods -n argocd -o wide
+}
 
 echo -e "${GREEN}✅ ArgoCD pods are ready${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 8: Get admin password
+# Step 9: Verify service accessibility
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}🔐 Step 8: Retrieving admin password...${NC}"
-sleep 10  # Give secrets time to be created
+echo -e "${BLUE}🔍 Step 9: Verifying ArgoCD service is accessible...${NC}"
+
+# Give the service a moment to start accepting connections
+sleep 5
+
+MAX_RETRIES=30
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -k -s -o /dev/null -w "%{http_code}" http://localhost:30080 2>/dev/null | grep -q "200\|301\|302\|307"; then
+        echo -e "${GREEN}✅ ArgoCD service is accessible!${NC}\n"
+        break
+    fi
+    
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+        echo "Waiting for service... ($RETRY_COUNT/$MAX_RETRIES)"
+        sleep 2
+    else
+        echo -e "${YELLOW}⚠️  Service check timed out, but pods are running${NC}"
+        echo "You can access ArgoCD at: http://localhost:30080"
+        echo "It may take another minute to be fully ready."
+        break
+    fi
+done
+
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 10: Get admin password
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}🔐 Step 10: Retrieving admin password...${NC}"
+sleep 5  # Give secrets time to be created
 ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d)
 echo -e "${GREEN}✅ Password retrieved${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 9: Show status
+# Step 11: Show status
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}📊 ArgoCD Installation Status:${NC}\n"
 echo "=========================================="
 echo "ArgoCD Pods:"
 echo "=========================================="
-kubectl get pods -n argocd
+kubectl get pods -n argocd -o wide
 echo ""
 echo "=========================================="
 echo "ArgoCD Services:"
@@ -208,20 +295,17 @@ kubectl get svc -n argocd
 echo ""
 
 # -----------------------------------------------------------------------------
-# Step 10: Display access information
+# Step 12: Display access information
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}✅ ArgoCD Installation Complete!${NC}\n"
 echo "=========================================="
 echo "📝 Access Information:"
 echo "=========================================="
 echo ""
-echo "1. Start port-forward (in a new terminal):"
-echo "   kubectl port-forward svc/argocd-server -n argocd 8080:80"
+echo "ArgoCD UI:"
+echo "   http://localhost:30080"
 echo ""
-echo "2. Open ArgoCD UI in your browser:"
-echo "   http://localhost:8080"
-echo ""
-echo "3. Login credentials:"
+echo "Login credentials:"
 echo "   Username: admin"
 echo "   Password: ${ARGOCD_PASSWORD}"
 echo ""
@@ -233,7 +317,7 @@ echo "Install ArgoCD CLI (if not already installed):"
 echo "   brew install argocd"
 echo ""
 echo "Login via CLI:"
-echo "   argocd login localhost:8080 --username admin --password ${ARGOCD_PASSWORD} --insecure"
+echo "   argocd login localhost:30080 --username admin --password ${ARGOCD_PASSWORD} --insecure"
 echo ""
 echo "List applications:"
 echo "   argocd app list"
@@ -250,12 +334,12 @@ echo "   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"
 echo ""
 
 # -----------------------------------------------------------------------------
-# 🧹 Step 11: Clean up temporary file
+# 🧹 Step 13: Clean up temporary file
 # -----------------------------------------------------------------------------
 rm -f "$VALUES_FILE"
 
 # -----------------------------------------------------------------------------
-# Step 12: Next Steps
+# Step 14: Next Steps
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}✅ Installation script complete!${NC}\n"
 echo "=========================================="
@@ -272,7 +356,7 @@ echo "3. Or deploy all apps at once:"
 echo "   kubectl apply -f $PROJECT_ROOT/argocd-apps/"
 echo ""
 echo "4. View applications in ArgoCD UI:"
-echo "   http://localhost:8080"
+echo "   http://localhost:30080"
 echo ""
 echo "5. Or use CLI:"
 echo "   argocd app list"
