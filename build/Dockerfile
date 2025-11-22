@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for Dota2 Meta Lab
-# Updated to use organized src/ structure
+# Updated for organized structure with scripts/ for Python and cli/ for shell scripts
 
 # =============================================================================
 # Stage 1: Data Fetcher
@@ -9,7 +9,7 @@ FROM python:3.11-slim AS data-fetcher
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy organized source code
@@ -33,7 +33,7 @@ FROM tensorflow/tensorflow:latest AS trainer
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy organized source code
@@ -60,8 +60,8 @@ FROM python:3.11-slim AS api
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+COPY build/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY src/ ./src/
@@ -90,7 +90,7 @@ FROM python:3.11-slim AS development
 WORKDIR /app
 
 # Install development dependencies
-COPY requirements.txt .
+COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir jupyter notebook ipython pytest black flake8
 
@@ -99,8 +99,6 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
 COPY api/ ./api/
-COPY data/ ./data/
-COPY models/ ./models/
 
 # Expose ports for Jupyter and API
 EXPOSE 8080 8888

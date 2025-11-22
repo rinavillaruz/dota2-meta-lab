@@ -3,18 +3,17 @@ pipeline {
     
     environment {
         // Docker registry settings
-        DOCKER_REGISTRY = "docker.io"  // Change to your registry
-        DOCKER_REPO = "rinavillaruz"   // Change to your Docker Hub username
-        IMAGE_NAME = "dota2-meta-lab"
+        DOCKER_REGISTRY =   "docker.io"
+        DOCKER_REPO     =   "rinavillaruz"
         
         // Git settings
-        GIT_REPO = "https://github.com/rinavillaruz/dota2-meta-lab.git"
+        GIT_REPO        =   "https://github.com/rinavillaruz/dota2-meta-lab.git"
         
         // Kubernetes namespace
-        K8S_NAMESPACE = "data"
+        K8S_NAMESPACE   =   "ml-pipeline"
         
         // ArgoCD app name
-        ARGOCD_APP = "dota2-dev"
+        ARGOCD_APP      =   "dota2-dev"
     }
     
     stages {
@@ -29,7 +28,6 @@ pipeline {
             steps {
                 echo '🧪 Running tests...'
                 script {
-                    // Run Python tests
                     sh '''
                         # Install dependencies
                         pip install -r build/requirements.txt || true
@@ -44,28 +42,56 @@ pipeline {
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Build Docker Images') {
             steps {
-                echo '🐳 Building Docker image...'
+                echo '🐳 Building multi-stage Docker images...'
                 script {
                     // Generate version tag
                     def imageTag = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
                     env.IMAGE_TAG = imageTag
                     
-                    // Build image
+                    echo "Building images with tag: ${imageTag}"
+                    
+                    // Build Data Fetcher
+                    echo "📦 Building Data Fetcher..."
                     sh """
-                        docker build -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:${imageTag} .
-                        docker tag ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:${imageTag} ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:latest
+                        docker build \
+                          --target data-fetcher \
+                          -f build/Dockerfile.dev \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:${imageTag} \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:latest \
+                          .
+                    """
+                    
+                    // Build Trainer
+                    echo "📦 Building Trainer..."
+                    sh """
+                        docker build \
+                          --target trainer \
+                          -f build/Dockerfile.dev \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:${imageTag} \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:latest \
+                          .
+                    """
+                    
+                    // Build API
+                    echo "📦 Building API Server..."
+                    sh """
+                        docker build \
+                          --target api \
+                          -f build/Dockerfile.dev \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:${imageTag} \
+                          -t ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:latest \
+                          .
                     """
                 }
             }
         }
         
-        stage('Push Docker Image') {
+        stage('Push Docker Images') {
             steps {
-                echo '📤 Pushing Docker image to registry...'
+                echo '📤 Pushing Docker images to registry...'
                 script {
-                    // Login to Docker registry
                     withCredentials([usernamePassword(
                         credentialsId: 'docker-hub-credentials',
                         usernameVariable: 'DOCKER_USER',
@@ -73,8 +99,18 @@ pipeline {
                     )]) {
                         sh """
                             echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin ${DOCKER_REGISTRY}
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:latest
+                            
+                            # Push Data Fetcher
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:${env.IMAGE_TAG}
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:latest
+                            
+                            # Push Trainer
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:${env.IMAGE_TAG}
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:latest
+                            
+                            # Push API
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:${env.IMAGE_TAG}
+                            docker push ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:latest
                         """
                     }
                 }
@@ -83,7 +119,7 @@ pipeline {
         
         stage('Update Helm Values') {
             steps {
-                echo '📝 Updating Helm values with new image tag...'
+                echo '📝 Updating Helm values with new image tags...'
                 script {
                     withCredentials([usernamePassword(
                         credentialsId: 'github-credentials',
@@ -95,12 +131,14 @@ pipeline {
                             git config user.email "jenkins@dota2-meta-lab.local"
                             git config user.name "Jenkins CI"
                             
-                            # Update image tag in values file
-                            sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|g' deploy/helm/values-dev.yaml
+                            # Update image tags in Helm values
+                            # Update for API
+                            sed -i 's|repository: .*/dota2-api|repository: ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api|g' deploy/helm/values.yaml
+                            sed -i 's|tag: .*|tag: "${env.IMAGE_TAG}"|g' deploy/helm/values.yaml
                             
                             # Commit and push
-                            git add deploy/helm/values-dev.yaml
-                            git commit -m "ci: update image tag to ${env.IMAGE_TAG}" || true
+                            git add deploy/helm/values.yaml
+                            git commit -m "ci: update image tags to ${env.IMAGE_TAG}" || true
                             git push https://${GIT_TOKEN}@github.com/rinavillaruz/dota2-meta-lab.git HEAD:main
                         """
                     }
@@ -113,8 +151,7 @@ pipeline {
                 echo '🔄 Triggering ArgoCD sync...'
                 script {
                     sh """
-                        # ArgoCD will auto-sync, but we can trigger it manually for faster deployment
-                        argocd app sync ${ARGOCD_APP} --insecure || echo "ArgoCD sync triggered (or auto-sync will handle it)"
+                        argocd app sync ${ARGOCD_APP} --insecure || echo "ArgoCD auto-sync will handle deployment"
                     """
                 }
             }
@@ -125,11 +162,11 @@ pipeline {
                 echo '✅ Verifying deployment...'
                 script {
                     sh """
-                        # Wait for deployment to be ready
-                        kubectl rollout status deployment/ml-api -n ${K8S_NAMESPACE} --timeout=300s || true
+                        # Check pods in ml-pipeline namespace
+                        kubectl get pods -n ${K8S_NAMESPACE} || true
                         
-                        # Show current pods
-                        kubectl get pods -n ${K8S_NAMESPACE}
+                        # Wait for API deployment if it exists
+                        kubectl rollout status deployment/ml-api -n ${K8S_NAMESPACE} --timeout=300s || true
                     """
                 }
             }
@@ -139,17 +176,23 @@ pipeline {
     post {
         success {
             echo '✅ Pipeline completed successfully!'
-            echo "🚀 Image: ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG}"
+            echo "🚀 Images built and pushed:"
+            echo "   - Fetcher: ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:${env.IMAGE_TAG}"
+            echo "   - Trainer: ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:${env.IMAGE_TAG}"
+            echo "   - API: ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:${env.IMAGE_TAG}"
         }
         failure {
             echo '❌ Pipeline failed!'
         }
         always {
             echo '🧹 Cleaning up...'
-            // Clean up Docker images to save space
             sh """
-                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:${env.IMAGE_TAG} || true
-                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/${IMAGE_NAME}:latest || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:${env.IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-fetcher:latest || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:${env.IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-trainer:latest || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:${env.IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}/dota2-api:latest || true
             """
         }
     }
