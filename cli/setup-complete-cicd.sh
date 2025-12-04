@@ -78,6 +78,7 @@ check_jenkins_functional() {
     return 1
 }
 
+
 # -----------------------------------------------------------------------------
 # Step 1: Install Jenkins
 # -----------------------------------------------------------------------------
@@ -257,17 +258,17 @@ echo ""
 read -p "Test OpenDota data fetching? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    if [ -f "$PROJECT_ROOT/fetch_opendota_data.py" ]; then
+    if [ -f "$PROJECT_ROOT/scripts/fetch_data.py" ]; then
         cd "$PROJECT_ROOT"
         echo "Installing dependencies..."
         pip install requests --break-system-packages 2>/dev/null || pip install requests || true
         
         echo "Fetching sample data..."
-        python3 fetch_opendota_data.py || python fetch_opendota_data.py
+        python3 fetch_data.py || python fetch_data.py
         
         echo -e "${GREEN}✅ Data fetching test complete${NC}"
     else
-        echo -e "${RED}❌ fetch_opendota_data.py not found${NC}"
+        echo -e "${RED}❌ fetch_data.py not found${NC}"
     fi
 else
     echo "Skipping data fetch test"

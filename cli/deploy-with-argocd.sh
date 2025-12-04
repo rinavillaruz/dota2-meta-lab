@@ -56,7 +56,7 @@ if ! kubectl get crd applications.argoproj.io &>/dev/null; then
     echo ""
     echo "Try reinstalling ArgoCD:"
     echo "  kubectl delete namespace argocd"
-    echo "  ./scripts/install-argocd.sh"
+    echo "  ./cli/install-argocd.sh"
     exit 1
 fi
 

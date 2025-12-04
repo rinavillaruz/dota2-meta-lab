@@ -44,31 +44,92 @@ fi
 echo -e "${BLUE}Using manifests from: $JENKINS_DIR${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 1: Create Namespace
+# Step 0: Load environment variables and create secrets
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 1: Creating Jenkins namespace...${NC}"
-kubectl apply -f "$JENKINS_DIR/00-namespace.yaml"
-echo -e "${GREEN}✅ Namespace created${NC}\n"
+echo "=========================================="
+echo -e "${BLUE}Step 0: Load Configuration & Create Secrets${NC}"
+echo "=========================================="
+echo ""
+
+# Load .env file if it exists
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    echo "Loading environment variables from .env..."
+    export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
+    echo -e "${GREEN}✅ Environment variables loaded${NC}"
+else
+    echo -e "${YELLOW}⚠️  .env file not found at $PROJECT_ROOT/.env${NC}"
+    echo "Will use default credentials"
+fi
+
+# Create Jenkins namespace first
+echo "Creating Jenkins namespace..."
+kubectl create namespace jenkins --dry-run=client -o yaml | kubectl apply -f -
+echo -e "${GREEN}✅ Namespace created/verified${NC}"
+
+# Create Jenkins admin credentials secret from .env or use default
+if [ -n "$JENKINS_ADMIN_PASSWORD" ]; then
+    echo "Creating Jenkins admin credentials from .env..."
+    kubectl create secret generic jenkins-admin-credentials \
+        --from-literal=password="$JENKINS_ADMIN_PASSWORD" \
+        -n jenkins \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo -e "${GREEN}✅ Jenkins credentials created from .env${NC}"
+    echo -e "${BLUE}Password set from JENKINS_ADMIN_PASSWORD${NC}"
+else
+    echo -e "${YELLOW}⚠️  JENKINS_ADMIN_PASSWORD not found in .env${NC}"
+    echo "Using default password: changeme"
+    kubectl create secret generic jenkins-admin-credentials \
+        --from-literal=password="changeme" \
+        -n jenkins \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo -e "${GREEN}✅ Jenkins credentials created with default password${NC}"
+fi
+
+# Create GitHub credentials secret
+if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_TOKEN" ]; then
+    kubectl create secret generic github-credentials \
+        --from-literal=username="$GITHUB_USERNAME" \
+        --from-literal=token="$GITHUB_TOKEN" \
+        -n jenkins \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo -e "${GREEN}✅ GitHub credentials secret created${NC}"
+else
+    echo -e "${YELLOW}⚠️  GitHub credentials not found in .env${NC}"
+fi
+
+# Create Docker Hub credentials secret
+if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+    kubectl create secret generic dockerhub-credentials \
+        --from-literal=username="$DOCKERHUB_USERNAME" \
+        --from-literal=token="$DOCKERHUB_TOKEN" \
+        -n jenkins \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo -e "${GREEN}✅ Docker Hub credentials secret created${NC}"
+else
+    echo -e "${YELLOW}⚠️  Docker Hub credentials not found in .env${NC}"
+fi
+
+echo ""
 
 # -----------------------------------------------------------------------------
-# Step 2: Create ServiceAccount
+# Step 1: Create ServiceAccount
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 2: Creating ServiceAccount...${NC}"
+echo -e "${BLUE}Step 1: Creating ServiceAccount...${NC}"
 kubectl apply -f "$JENKINS_DIR/01-serviceaccount.yaml"
 echo -e "${GREEN}✅ ServiceAccount created${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 3: Set up RBAC
+# Step 2: Set up RBAC
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 3: Setting up RBAC (ClusterRole & Binding)...${NC}"
+echo -e "${BLUE}Step 2: Setting up RBAC (ClusterRole & Binding)...${NC}"
 kubectl apply -f "$JENKINS_DIR/02-clusterrole.yaml"
 kubectl apply -f "$JENKINS_DIR/03-clusterrolebinding.yaml"
 echo -e "${GREEN}✅ RBAC configured${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 4: Create PersistentVolumeClaim
+# Step 3: Create PersistentVolumeClaim
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 4: Creating PersistentVolumeClaim...${NC}"
+echo -e "${BLUE}Step 3: Creating PersistentVolumeClaim...${NC}"
 kubectl apply -f "$JENKINS_DIR/04-pvc.yaml"
 
 # Wait for PVC to be bound
@@ -79,7 +140,18 @@ kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/jenkins-pvc -n jenkins -
 echo -e "${GREEN}✅ PVC created${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 5: Create ConfigMap (JCasC)
+# Step 4: Create Jenkins Init Scripts ConfigMap
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}Step 4: Creating Jenkins init scripts...${NC}"
+if [ -f "$JENKINS_DIR/08-init-configmap.yaml" ]; then
+    kubectl apply -f "$JENKINS_DIR/08-init-configmap.yaml"
+    echo -e "${GREEN}✅ Init scripts ConfigMap created${NC}\n"
+else
+    echo -e "${YELLOW}⚠️  08-init-configmap.yaml not found, skipping${NC}\n"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 5: Create ConfigMap (JCasC & plugins.txt)
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 5: Creating Jenkins Configuration...${NC}"
 kubectl apply -f "$JENKINS_DIR/05-configmap.yaml"
@@ -103,8 +175,35 @@ echo -e "${GREEN}✅ Service created${NC}\n"
 # Step 8: Wait for Jenkins to be ready
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 8: Waiting for Jenkins pod to be ready...${NC}"
-echo "This may take 2-3 minutes (downloading image and starting up)..."
+echo "This may take 2-3 minutes (downloading image and installing plugins)..."
 echo ""
+
+# Show init container logs while waiting
+echo "Watching plugin installation..."
+sleep 5
+
+JENKINS_POD=""
+for i in {1..30}; do
+    JENKINS_POD=$(kubectl get pods -n jenkins -l app=jenkins -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$JENKINS_POD" ]; then
+        break
+    fi
+    echo "Waiting for pod to be created... ($i/30)"
+    sleep 2
+done
+
+if [ -n "$JENKINS_POD" ]; then
+    echo "Pod found: $JENKINS_POD"
+    echo "Checking init container status..."
+    
+    # Check if init container is running
+    INIT_STATUS=$(kubectl get pod -n jenkins $JENKINS_POD -o jsonpath='{.status.initContainerStatuses[0].state}' 2>/dev/null || echo "")
+    
+    if echo "$INIT_STATUS" | grep -q "running"; then
+        echo "Init container is installing plugins..."
+        echo "You can watch logs with: kubectl logs -n jenkins $JENKINS_POD -c install-plugins -f"
+    fi
+fi
 
 kubectl wait --for=condition=ready pod -l app=jenkins -n jenkins --timeout=300s || {
     echo -e "${RED}❌ Jenkins pod did not become ready in time${NC}"
@@ -112,8 +211,11 @@ kubectl wait --for=condition=ready pod -l app=jenkins -n jenkins --timeout=300s 
     echo "Check pod status:"
     echo "  kubectl get pods -n jenkins"
     echo ""
-    echo "Check pod logs:"
-    echo "  kubectl logs -n jenkins -l app=jenkins"
+    echo "Check init container logs:"
+    echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+    echo ""
+    echo "Check main container logs:"
+    echo "  kubectl logs -n jenkins $JENKINS_POD -c jenkins"
     echo ""
     echo "Check events:"
     echo "  kubectl get events -n jenkins --sort-by='.lastTimestamp'"
@@ -123,12 +225,26 @@ kubectl wait --for=condition=ready pod -l app=jenkins -n jenkins --timeout=300s 
 echo -e "${GREEN}✅ Jenkins is ready!${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 9: Get Jenkins info
+# Step 9: Get Jenkins info and verify plugins
 # -----------------------------------------------------------------------------
 JENKINS_POD=$(kubectl get pods -n jenkins -l app=jenkins -o jsonpath='{.items[0].metadata.name}')
 
 echo -e "${BLUE}Step 9: Retrieving Jenkins information...${NC}"
 echo "Jenkins Pod: $JENKINS_POD"
+echo ""
+
+# Check plugin installation
+echo "Verifying plugin installation..."
+PLUGIN_COUNT=$(kubectl exec -n jenkins $JENKINS_POD -- find /var/jenkins_home/plugins -name "*.jpi" -o -name "*.hpi" 2>/dev/null | wc -l || echo "0")
+
+if [ "$PLUGIN_COUNT" -gt 20 ]; then
+    echo -e "${GREEN}✅ $PLUGIN_COUNT plugins installed successfully${NC}"
+else
+    echo -e "${YELLOW}⚠️  Only $PLUGIN_COUNT plugins found${NC}"
+    echo "Check init container logs for errors:"
+    echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+fi
+
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -141,7 +257,13 @@ echo ""
 echo -e "${BLUE}Access Information:${NC}"
 echo "  URL: http://localhost:30808"
 echo "  Username: admin"
-echo "  Password: admin"
+
+if [ -n "$JENKINS_ADMIN_PASSWORD" ]; then
+    echo "  Password: [From .env JENKINS_ADMIN_PASSWORD]"
+else
+    echo "  Password: changeme"
+fi
+
 echo ""
 echo -e "${YELLOW}⚠️  IMPORTANT: Change the admin password after first login!${NC}"
 echo ""
@@ -151,7 +273,7 @@ echo "=========================================="
 echo ""
 
 # Show all resources
-kubectl get all,pvc,configmap -n jenkins
+kubectl get all,pvc,configmap,secret -n jenkins
 
 echo ""
 echo "=========================================="
@@ -161,12 +283,12 @@ echo ""
 echo "1. Open Jenkins UI:"
 echo "   http://localhost:30808"
 echo ""
-echo "2. Login with admin/admin"
+echo "2. Login with credentials shown above"
 echo ""
-echo "3. Change admin password:"
-echo "   Click 'admin' → Configure → Password"
+echo "3. Verify plugins are installed:"
+echo "   Manage Jenkins → Plugins → Installed plugins"
 echo ""
-echo "4. Configure credentials:"
+echo "4. Configure credentials (if not using JCasC):"
 echo "   Manage Jenkins → Credentials → System → Global credentials"
 echo "   Add:"
 echo "   - GitHub Personal Access Token (ID: github-credentials)"
@@ -184,7 +306,13 @@ echo -e "${BLUE}ℹ️  Useful Commands${NC}"
 echo "=========================================="
 echo ""
 echo "View Jenkins logs:"
-echo "  kubectl logs -n jenkins $JENKINS_POD -f"
+echo "  kubectl logs -n jenkins $JENKINS_POD -c jenkins -f"
+echo ""
+echo "View plugin installation logs:"
+echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+echo ""
+echo "Check installed plugins:"
+echo "  kubectl exec -n jenkins $JENKINS_POD -- ls /var/jenkins_home/plugins/*.jpi"
 echo ""
 echo "Restart Jenkins:"
 echo "  kubectl rollout restart deployment/jenkins -n jenkins"
