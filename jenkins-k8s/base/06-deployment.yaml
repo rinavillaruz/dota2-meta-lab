@@ -102,7 +102,9 @@ spec:
           image: rinavillaruz/jenkins-docker:latest
           imagePullPolicy: IfNotPresent
           
-          
+          securityContext:
+            privileged: true
+
           ports:
             - containerPort: 8080
               name: http
