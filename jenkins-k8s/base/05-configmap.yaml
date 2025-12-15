@@ -6,6 +6,7 @@ metadata:
   labels:
     app: jenkins
 data:
+  # Jenkins Configuration as Code
   jenkins.yaml: |
     jenkins:
       systemMessage: "Jenkins for Dota2 Meta Lab CI/CD"
@@ -18,36 +19,59 @@ data:
           allowsSignup: false
           users:
             - id: "admin"
-              password: "admin"  # Change this after first login!
       
       authorizationStrategy:
         loggedInUsersCanDoAnything:
           allowAnonymousRead: false
     
-    # Credentials (will be added via Jenkins UI)
+    # Tool Configuration
+    tool:
+      git:
+        installations:
+          - name: "Default"
+            home: "git"
+
+    # Credentials (will be added via Jenkins UI or JCasC)
     credentials:
       system:
         domainCredentials:
           - credentials:
+              # GitHub credentials from Kubernetes secret
               - usernamePassword:
                   scope: GLOBAL
                   id: "github-credentials"
-                  username: "your-github-username"
-                  password: "your-github-token"
-                  description: "GitHub credentials"
+                  username: ${readFile:/run/secrets/github/username}
+                  password: ${readFile:/run/secrets/github/token}
+                  description: "GitHub credentials from secret"
+              
+              # Docker Hub credentials from Kubernetes secret
               - usernamePassword:
                   scope: GLOBAL
                   id: "docker-hub-credentials"
-                  username: "your-dockerhub-username"
-                  password: "your-dockerhub-password"
-                  description: "Docker Hub credentials"
+                  username: ${readFile:/run/secrets/dockerhub/username}
+                  password: ${readFile:/run/secrets/dockerhub/token}
+                  description: "Docker Hub credentials from secret"
+
+              # Docker registry URL as string credential
+              - string:
+                  scope: GLOBAL
+                  id: "docker-registry-url"
+                  secret: "docker.io"
+                  description: "Docker registry URL"
+              
+              # Docker image prefix as string credential
+              - string:
+                  scope: GLOBAL
+                  id: "docker-image-prefix"
+                  secret: "rinavillaruz"
+                  description: "Docker image prefix/username"
     
     # Jenkins URL configuration
     unclassified:
       location:
         url: http://localhost:30808/
     
-    # Pre-configured pipeline job (optional)
+    # Pre-configured pipeline job
     jobs:
       - script: >
           pipelineJob('dota2-meta-lab') {
@@ -67,7 +91,54 @@ data:
             }
             triggers {
               pollSCM {
-                scmpoll_spec('H/5 * * * *')  # Poll every 5 minutes
+                scmpoll_spec('H/5 * * * *')
               }
             }
           }
+
+
+  
+  # Plugins to auto-install
+  plugins.txt: |
+    # Core Authentication & Credentials
+    credentials
+    credentials-binding
+    plain-credentials
+    
+    # Git & GitHub Integration
+    git
+    github
+    github-api
+    github-branch-source
+    scm-api
+    branch-api
+    
+    # Pipeline Core Plugins
+    workflow-aggregator
+    workflow-api
+    workflow-step-api
+    workflow-cps
+    workflow-job
+    workflow-support
+    workflow-durable-task-step
+    pipeline-stage-view
+    pipeline-build-step
+    
+    # Docker Integration
+    docker-workflow
+    docker-commons
+    
+    # Configuration as Code (JCasC)
+    configuration-as-code
+    
+    # Kubernetes Integration  
+    kubernetes
+    
+    # Job DSL
+    job-dsl
+    
+    # Useful Utilities
+    timestamper
+    ws-cleanup
+    ansicolor
+    build-timeout

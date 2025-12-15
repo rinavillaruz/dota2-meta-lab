@@ -43,14 +43,6 @@ fi
 
 echo -e "${BLUE}Using manifests from: $JENKINS_DIR${NC}\n"
 
-# -----------------------------------------------------------------------------
-# Step 0: Load environment variables and create secrets
-# -----------------------------------------------------------------------------
-echo "=========================================="
-echo -e "${BLUE}Step 0: Load Configuration & Create Secrets${NC}"
-echo "=========================================="
-echo ""
-
 # Load .env file if it exists
 if [ -f "$PROJECT_ROOT/.env" ]; then
     echo "Loading environment variables from .env..."
@@ -60,6 +52,98 @@ else
     echo -e "${YELLOW}⚠️  .env file not found at $PROJECT_ROOT/.env${NC}"
     echo "Will use default credentials"
 fi
+
+# -----------------------------------------------------------------------------
+# Step -1: Build Jenkins Docker Image with Docker CLI (AUTOMATED!)
+# -----------------------------------------------------------------------------
+echo "=========================================="
+echo -e "${BLUE}Step -1: Preparing Jenkins with Docker CLI${NC}"
+echo "=========================================="
+echo ""
+
+# Check if image exists on Docker Hub (not just locally)
+if ! docker pull rinavillaruz/jenkins-docker:latest > /dev/null 2>&1; then
+    echo "Image not found on Docker Hub. Building..."
+    docker rmi rinavillaruz/jenkins-docker:latest 2>/dev/null || true
+    
+    # Create Dockerfile if it doesn't exist
+    if [ ! -f "$PROJECT_ROOT/jenkins-k8s/Dockerfile" ]; then
+        echo "Creating Dockerfile..."
+        cat > "$PROJECT_ROOT/jenkins-k8s/Dockerfile" <<'EOF'
+FROM jenkins/jenkins:lts-jdk21
+
+USER root
+
+# Install Docker CLI
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz -o docker.tgz && \
+    tar --extract --file docker.tgz --strip-components 1 --directory /usr/local/bin/ && \
+    rm docker.tgz && \
+    groupadd -f docker && \
+    usermod -aG docker jenkins
+
+USER jenkins
+EOF
+        echo -e "${GREEN}✅ Dockerfile created${NC}"
+    fi
+    
+    echo ""
+    echo "🐳 Building Jenkins image with Docker CLI..."
+    cd "$PROJECT_ROOT/jenkins-k8s"
+    docker build -t rinavillaruz/jenkins-docker:latest . || {
+        echo -e "${RED}❌ Docker build failed${NC}"
+        exit 1
+    }
+    echo -e "${GREEN}✅ Jenkins image built successfully${NC}"
+    
+    echo ""
+    # Automated Docker login
+    if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+        echo "🔑 Logging into Docker Hub..."
+        echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin 2>/dev/null || {
+            echo -e "${RED}❌ Docker login failed${NC}"
+            exit 1
+        }
+        echo -e "${GREEN}✅ Logged into Docker Hub${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Docker Hub credentials not found in .env${NC}"
+        read -p "Login manually now? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            docker login || exit 1
+        else
+            echo -e "${YELLOW}⚠️  Image not pushed to Docker Hub${NC}"
+            echo "You can push later with: docker push rinavillaruz/jenkins-docker:latest"
+            cd "$PROJECT_ROOT"
+        fi
+    fi
+    
+    # Push if logged in
+    if docker info 2>&1 | grep -q "Username:"; then
+        echo ""
+        echo "📤 Pushing image to Docker Hub..."
+        docker push rinavillaruz/jenkins-docker:latest || {
+            echo -e "${RED}❌ Push failed${NC}"
+        }
+        echo -e "${GREEN}✅ Image pushed to Docker Hub${NC}"
+    fi
+    
+    echo -e "${GREEN}✅ Image ready${NC}"
+    echo ""
+else
+    echo -e "${GREEN}✅ Jenkins Docker image already exists on Docker Hub${NC}"
+    echo "To rebuild: docker rmi rinavillaruz/jenkins-docker:latest"
+    echo ""
+fi
+
+echo ""
+
+# -----------------------------------------------------------------------------
+# Step 0: Create secrets
+# -----------------------------------------------------------------------------
+echo "=========================================="
+echo -e "${BLUE}Step 0: Load Configuration & Create Secrets${NC}"
+echo "=========================================="
+echo ""
 
 # Create Jenkins namespace first
 echo "Creating Jenkins namespace..."
@@ -107,6 +191,21 @@ if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
     echo -e "${GREEN}✅ Docker Hub credentials secret created${NC}"
 else
     echo -e "${YELLOW}⚠️  Docker Hub credentials not found in .env${NC}"
+fi
+
+# Create ImagePullSecret for private Docker Hub repository
+if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+    echo "Creating ImagePullSecret for private Docker Hub repository..."
+    kubectl create secret docker-registry dockerhub-pull-secret \
+        --docker-server=https://index.docker.io/v1/ \
+        --docker-username="$DOCKERHUB_USERNAME" \
+        --docker-password="$DOCKERHUB_TOKEN" \
+        --docker-email="${DOCKERHUB_EMAIL:-admin@example.com}" \
+        -n jenkins \
+        --dry-run=client -o yaml | kubectl apply -f -
+    echo -e "${GREEN}✅ ImagePullSecret created for private repository${NC}"
+else
+    echo -e "${YELLOW}⚠️  Cannot create ImagePullSecret - Docker Hub credentials missing${NC}"
 fi
 
 echo ""

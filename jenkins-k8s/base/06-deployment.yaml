@@ -16,17 +16,93 @@ spec:
         app: jenkins
     spec:
       serviceAccountName: jenkins
+      imagePullSecrets:
+        - name: dockerhub-pull-secret
       
-      # Security context
       securityContext:
-        fsGroup: 1000  # Jenkins user ID
+        fsGroup: 1000
+      
+      # Init containers - run in order
+      initContainers:
+        # First init container: Install Docker CLI
+        - name: install-docker-cli
+          image: rinavillaruz/jenkins-docker:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "=========================================="
+              echo "Installing Docker CLI"
+              echo "=========================================="
+              
+              # Switch to root (jenkins user can't install packages)
+              # We'll install to a shared volume that main container can access
+              
+              # Create a script that main container will run
+              cat > /var/jenkins_home/install-docker.sh <<'EOF'
+              #!/bin/bash
+              # This runs as root in the main container
+              if ! command -v docker &> /dev/null; then
+                  echo "Installing Docker CLI..."
+                  apt-get update -qq > /dev/null 2>&1
+                  apt-get install -y docker.io > /dev/null 2>&1
+                  usermod -aG docker jenkins 2>&1 || true
+                  echo "Docker CLI installed!"
+              else
+                  echo "Docker CLI already installed"
+              fi
+              EOF
+              
+              chmod +x /var/jenkins_home/install-docker.sh
+              
+              echo "✅ Docker installation script prepared"
+              echo "=========================================="
+          volumeMounts:
+            - name: jenkins-data
+              mountPath: /var/jenkins_home
+        
+        # Second init container: Install Jenkins plugins
+        - name: install-plugins
+          image: rinavillaruz/jenkins-docker:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "=========================================="
+              echo "Installing Jenkins Plugins"
+              echo "=========================================="
+              
+              # Create plugins directory if it doesn't exist
+              mkdir -p /var/jenkins_home/plugins
+              
+              # Install plugins to the persistent volume
+              jenkins-plugin-cli \
+                --plugin-file /usr/share/jenkins/ref/plugins.txt \
+                --plugin-download-directory /var/jenkins_home/plugins \
+                --verbose
+              
+              # Set correct permissions
+              chown -R 1000:1000 /var/jenkins_home/plugins
+              
+              echo "=========================================="
+              echo "Listing installed plugins:"
+              ls -la /var/jenkins_home/plugins/ | head -20
+              echo "=========================================="
+              echo "Plugins installed successfully!"
+              echo "=========================================="
+          volumeMounts:
+            - name: jenkins-data
+              mountPath: /var/jenkins_home
+            - name: jenkins-config
+              mountPath: /usr/share/jenkins/ref/plugins.txt
+              subPath: plugins.txt
       
       containers:
         - name: jenkins
-          image: jenkins/jenkins:lts
+          image: rinavillaruz/jenkins-docker:latest
           imagePullPolicy: IfNotPresent
           
-          # Ports
+          
           ports:
             - containerPort: 8080
               name: http
@@ -35,31 +111,33 @@ spec:
               name: jnlp
               protocol: TCP
           
-          # Environment variables
           env:
-            # Skip setup wizard (using JCasC instead)
             - name: JAVA_OPTS
-              value: "-Djenkins.install.runSetupWizard=false"
-            
-            # Jenkins Configuration as Code path
+              value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.UpdateCenter.never=true"
             - name: CASC_JENKINS_CONFIG
               value: /var/jenkins_home/casc_configs/jenkins.yaml
-          
-          # Volume mounts
+            - name: JENKINS_UC_DOWNLOAD
+              value: "https://updates.jenkins.io/download"
+            - name: TRY_UPGRADE_IF_NO_MARKER
+              value: "false"
+
           volumeMounts:
-            # Persistent storage for Jenkins data
             - name: jenkins-data
               mountPath: /var/jenkins_home
-            
-            # Docker socket for building images
             - name: docker-sock
               mountPath: /var/run/docker.sock
-            
-            # Jenkins configuration
             - name: jenkins-config
               mountPath: /var/jenkins_home/casc_configs
+            - name: jenkins-credentials
+              mountPath: /run/secrets/jenkins-credentials
+              readOnly: true
+            - name: github-credentials
+              mountPath: /run/secrets/github
+              readOnly: true
+            - name: dockerhub-credentials
+              mountPath: /run/secrets/dockerhub
+              readOnly: true
           
-          # Resource limits
           resources:
             requests:
               memory: "1Gi"
@@ -68,12 +146,11 @@ spec:
               memory: "2Gi"
               cpu: "1"
           
-          # Health checks
           livenessProbe:
             httpGet:
               path: /login
               port: 8080
-            initialDelaySeconds: 90
+            initialDelaySeconds: 180  # Increased to allow Docker install
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
@@ -82,25 +159,28 @@ spec:
             httpGet:
               path: /login
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 150  # Increased to allow Docker install
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
       
-      # Volumes
       volumes:
-        # Persistent volume for Jenkins data
         - name: jenkins-data
           persistentVolumeClaim:
             claimName: jenkins-pvc
-        
-        # Docker socket from host (for building images)
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
             type: Socket
-        
-        # Jenkins configuration from ConfigMap
         - name: jenkins-config
           configMap:
             name: jenkins-config
+        - name: jenkins-credentials
+          secret:
+            secretName: jenkins-admin-credentials
+        - name: github-credentials
+          secret:
+            secretName: github-credentials
+        - name: dockerhub-credentials
+          secret:
+            secretName: dockerhub-credentials

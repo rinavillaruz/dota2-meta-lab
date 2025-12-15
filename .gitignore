@@ -53,4 +53,4 @@ secrets/
 # others
 /tmp/
 /tests/
-/scripts/manual.sh
+/cli/manual.sh

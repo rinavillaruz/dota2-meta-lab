@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-init-scripts
+  namespace: jenkins
+data:
+  01-setup-security.groovy: |
+    #!groovy
+    import jenkins.model.*
+    import hudson.security.*
+    
+    def instance = Jenkins.getInstance()
+    
+    println "=========================================="
+    println "Setting up Jenkins Security"
+    println "=========================================="
+    
+    // Read password from mounted secret
+    def username = "admin"
+    def password = "changeme"
+    
+    try {
+        def passwordFile = new File('/run/secrets/jenkins-credentials/password')
+        if (passwordFile.exists()) {
+            password = passwordFile.text.trim()
+            println "Using password from Kubernetes secret"
+        } else {
+            println "WARNING: Password file not found, using default"
+        }
+    } catch (Exception e) {
+        println "ERROR reading password: ${e.message}"
+    }
+    
+    // Create admin user
+    println "Creating admin user..."
+    def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+    hudsonRealm.createAccount(username, password)
+    instance.setSecurityRealm(hudsonRealm)
+    
+    // Set authorization
+    println "Setting authorization strategy..."
+    def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+    strategy.setAllowAnonymousRead(false)
+    instance.setAuthorizationStrategy(strategy)
+    
+    // Enable CSRF protection
+    println "Enabling CSRF protection..."
+    instance.setCrumbIssuer(new hudson.security.csrf.DefaultCrumbIssuer(true))
+    
+    // Save configuration
+    instance.save()
+    
+    println "=========================================="
+    println "Security setup complete!"
+    println "Username: ${username}"
+    println "=========================================="

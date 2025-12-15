@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Fetch Dota 2 match data from OpenDota API
 Usage: python scripts/fetch_data.py
@@ -24,11 +23,11 @@ def main():
     logger.info("🎮 Starting Dota 2 Data Fetcher")
     
     # Initialize fetcher
-    fetcher = OpenDotaFetcher(api_key=Config.OPENDOTA_API_KEY)
+    fetcher     =   OpenDotaFetcher(api_key=Config.OPENDOTA_API_KEY)
     
     # Create output directory with timestamp
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = f"{Config.OUTPUT_DIR}/opendota_{timestamp}"
+    timestamp   =   datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_dir  =   f"{Config.OUTPUT_DIR}/opendota_{timestamp}"
     
     logger.info(f"Saving data to {output_dir}")
     
@@ -58,8 +57,8 @@ def main():
             logger.info("Fetching detailed match data for first 5 pro matches...")
             detailed_matches = []
             for match in pro_matches[:5]:
-                match_id = match['match_id']
-                details = fetcher.get_match_details(match_id)
+                match_id    =   match['match_id']
+                details     =   fetcher.get_match_details(match_id)
                 if details:
                     detailed_matches.append(details)
             
