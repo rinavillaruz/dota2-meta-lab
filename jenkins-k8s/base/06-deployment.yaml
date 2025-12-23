@@ -33,7 +33,7 @@ spec:
               mountPath: /var/run/docker.sock
           securityContext:
             privileged: true
-            
+
         # First init container: Install Docker CLI
         - name: install-docker-cli
           image: rinavillaruz/jenkins-docker:latest
@@ -132,6 +132,8 @@ spec:
               value: "https://updates.jenkins.io/download"
             - name: TRY_UPGRADE_IF_NO_MARKER
               value: "false"
+            - name: JAVA_OPTS
+              value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.UpdateCenter.never=true -Dorg.jenkinsci.plugins.durabletask.BourneShellScript.LAUNCH_DIAGNOSTICS=true"
 
           volumeMounts:
             - name: jenkins-data

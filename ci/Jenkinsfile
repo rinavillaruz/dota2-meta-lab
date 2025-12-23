@@ -27,14 +27,18 @@ pipeline {
                 }
             }
             steps {
-                echo '🧪 Running tests...'
-                script {
-                    sh '''
-                        pip install -r build/requirements.txt || true
-                        python -m pytest tests/ || true
-                        flake8 src/ || true
-                    '''
-                }
+                echo '🧪 Running tests in Python container...'
+                sh '''
+                    docker run --rm \
+                        -v $(pwd):/app \
+                        -w /app \
+                        python:3.11-slim \
+                        bash -c "
+                            pip install -r build/requirements.txt || true
+                            python -m pytest tests/ || true
+                            flake8 src/ || true
+                        "
+                '''
             }
         }
         
