@@ -24,6 +24,16 @@ spec:
       
       # Init containers - run in order
       initContainers:
+        # Fix Docker socket permissions FIRST
+        - name: fix-docker-socket
+          image: busybox
+          command: ['sh', '-c', 'chmod 666 /var/run/docker.sock']
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          securityContext:
+            privileged: true
+            
         # First init container: Install Docker CLI
         - name: install-docker-cli
           image: rinavillaruz/jenkins-docker:latest

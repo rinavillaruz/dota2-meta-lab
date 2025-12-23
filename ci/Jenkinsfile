@@ -21,7 +21,7 @@ pipeline {
                 docker {
                     image 'python:3.11-slim'
                     // Mount Docker socket so we can use Docker inside
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    // args '-v /var/run/docker.sock:/var/run/docker.sock'
                     // Reuse the node workspace
                     reuseNode true
                 }
