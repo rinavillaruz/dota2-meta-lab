@@ -24,6 +24,25 @@ spec:
       
       # Init containers - run in order
       initContainers:
+        # FIRST: Fix all permissions
+        - name: fix-permissions
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              echo "Fixing permissions..."
+              chown -R 1000:1000 /var/jenkins_home
+              chmod -R 755 /var/jenkins_home
+              mkdir -p /var/jenkins_home/workspace
+              chmod -R 777 /var/jenkins_home/workspace
+              echo "Permissions fixed!"
+          volumeMounts:
+            - name: jenkins-data
+              mountPath: /var/jenkins_home
+          securityContext:
+            runAsUser: 0  # This init container runs as root
+
         # Fix Docker socket permissions FIRST
         - name: fix-docker-socket
           image: busybox
@@ -34,6 +53,15 @@ spec:
           securityContext:
             privileged: true
 
+        - name: fix-workspace-permissions  # ← Add this
+          image: busybox
+          command: ['sh', '-c', 'mkdir -p /var/jenkins_home/workspace && chmod -R 777 /var/jenkins_home/workspace']
+          volumeMounts:
+            - name: jenkins-data
+              mountPath: /var/jenkins_home
+          securityContext:
+            runAsUser: 0
+            
         # First init container: Install Docker CLI
         - name: install-docker-cli
           image: rinavillaruz/jenkins-docker:latest
@@ -114,6 +142,8 @@ spec:
           
           securityContext:
             privileged: true
+            runAsUser: 1000      # ← Jenkins user
+            runAsGroup: 1000     # ← Jenkins group
 
           ports:
             - containerPort: 8080
