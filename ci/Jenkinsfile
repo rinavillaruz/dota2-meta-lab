@@ -102,6 +102,34 @@ pipeline {
                 '''
             }
         }
+
+        stage('Set Repository Privacy') {
+            steps {
+                sh '''
+                    # Function to make repo private
+                    make_private() {
+                        local repo=$1
+                        
+                        # Get token
+                        TOKEN=$(curl -s -H "Content-Type: application/json" \
+                        -X POST \
+                        -d '{"username": "'${DOCKERHUB_USERNAME}'", "password": "'${DOCKERHUB_TOKEN}'"}' \
+                        https://hub.docker.com/v2/users/login/ | jq -r .token)
+                        
+                        # Make private
+                        curl -s -H "Authorization: JWT ${TOKEN}" \
+                        -H "Content-Type: application/json" \
+                        -X PATCH \
+                        -d '{"is_private": true}' \
+                        https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/
+                    }
+                    
+                    # Make specific repos private
+                    make_private "dota2-fetcher"
+                    # make_private "dota2-trainer"  # Uncomment if needed
+                '''
+            }
+        }
         
         stage('Update Helm Values') {
             steps {
