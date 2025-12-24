@@ -78,18 +78,28 @@ pipeline {
         stage('Push Docker Images') {
             steps {
                 echo '📤 Pushing images to Docker Hub...'
-                script {
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-hub-credentials') {
-                        sh """
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
-                            docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
-                        """
-                    }
-                }
+                sh '''
+                    # Login using Kubernetes secrets (more secure!)
+                    echo "🔑 Logging into Docker Hub..."
+                    DOCKERHUB_USERNAME=$(cat /run/secrets/dockerhub/username)
+                    DOCKERHUB_TOKEN=$(cat /run/secrets/dockerhub/token)
+                    
+                    echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                    
+                    echo "📤 Pushing data-fetcher..."
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
+                    
+                    echo "📤 Pushing trainer..."
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
+                    
+                    echo "📤 Pushing API..."
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
+                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
+                    
+                    echo "✅ All images pushed successfully!"
+                '''
             }
         }
         
