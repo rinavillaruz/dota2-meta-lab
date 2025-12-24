@@ -6,6 +6,7 @@ pipeline {
         DOCKER_IMAGE_PREFIX =   credentials('docker-image-prefix')
         GIT_COMMIT_SHORT    =   sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         IMAGE_TAG           =   "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
+        DOCKER_BUILDKIT     =   "1"
     }
     
     stages {
@@ -35,71 +36,81 @@ pipeline {
         
         stage('Build Docker Images') {
             steps {
-                echo '🐳 Building multi-stage Docker images...'
+                echo '🐳 Building multi-stage Docker images in parallel...'
                 script {
                     echo "Building images with tag: ${IMAGE_TAG}"
                     
-                    // Data Fetcher
-                    echo '📦 Building Data Fetcher...'
-                    sh """
-                        docker build \
-                            --target data-fetcher \
-                            -f build/Dockerfile.dev \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest \
-                            .
-                    """
-                    
-                    // ML Trainer (CHANGED HERE!)
-                    echo '🤖 Building ML Trainer...'
-                    sh """
-                        docker build \
-                            --target trainer \
-                            -f build/Dockerfile.dev \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest \
-                            .
-                    """
-                    
-                    // API Service
-                    echo '🌐 Building API Service...'
-                    sh """
-                        docker build \
-                            --target api \
-                            -f build/Dockerfile.dev \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
-                            -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest \
-                            .
-                    """
+                    parallel(
+                        'data-fetcher': {
+                            echo '📦 Building Data Fetcher...'
+                            sh """
+                                docker build \
+                                    --target data-fetcher \
+                                    -f build/Dockerfile.dev \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest \
+                                    .
+                            """
+                        },
+                        'trainer': {
+                            echo '🤖 Building ML Trainer...'
+                            sh """
+                                docker build \
+                                    --target trainer \
+                                    -f build/Dockerfile.dev \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest \
+                                    .
+                            """
+                        },
+                        'api': {
+                            echo '🌐 Building API Service...'
+                            sh """
+                                docker build \
+                                    --target api \
+                                    -f build/Dockerfile.dev \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest \
+                                    .
+                            """
+                        }
+                    )
                 }
             }
         }
         
         stage('Push Docker Images') {
             steps {
-                echo '📤 Pushing images to Docker Hub...'
+                echo '📤 Pushing images to Docker Hub in parallel...'
                 sh '''
-                    # Login using Kubernetes secrets (more secure!)
-                    echo "🔑 Logging into Docker Hub..."
+                    # Login once
                     DOCKERHUB_USERNAME=$(cat /run/secrets/dockerhub/username)
                     DOCKERHUB_TOKEN=$(cat /run/secrets/dockerhub/token)
-                    
                     echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-                    
-                    echo "📤 Pushing data-fetcher..."
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
-                    
-                    echo "📤 Pushing trainer..."
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
-                    
-                    echo "📤 Pushing API..."
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
-                    
-                    echo "✅ All images pushed successfully!"
                 '''
+                
+                script {
+                    parallel(
+                        'push-fetcher': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
+                            """
+                        },
+                        'push-trainer': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
+                            """
+                        },
+                        'push-api': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
+                            """
+                        }
+                    )
+                }
             }
         }
 
