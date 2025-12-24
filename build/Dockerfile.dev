@@ -28,7 +28,7 @@ ENTRYPOINT ["python", "scripts/fetch_data.py"]
 # =============================================================================
 # Stage 2: Model Trainer
 # =============================================================================
-FROM tensorflow/tensorflow:latest AS trainer
+FROM python:3.11-slim AS trainer
 
 WORKDIR /app
 
