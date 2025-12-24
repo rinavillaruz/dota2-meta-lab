@@ -1,5 +1,5 @@
-# Multi-stage Dockerfile for Dota2 Meta Lab
-# Updated for organized structure with scripts/ for Python and cli/ for shell scripts
+# Multi-stage Dockerfile for Dota2 Meta Lab - Production Optimized
+# Organized structure with minimal image sizes and optimal layer caching
 
 # =============================================================================
 # Stage 1: Data Fetcher
@@ -8,12 +8,13 @@ FROM python:3.11-slim AS data-fetcher
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies (cached layer)
 COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy organized source code
-COPY src/ ./src/
+# Copy only what's needed for data fetching
+COPY src/data ./src/data
+COPY src/utils ./src/utils
 COPY scripts/fetch_data.py ./scripts/
 
 # Set environment variables
@@ -32,12 +33,15 @@ FROM python:3.11-slim AS trainer
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies (cached layer)
 COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy organized source code
-COPY src/ ./src/
+# Copy only what's needed for training
+# Order matters for cache efficiency - least changing files first
+COPY src/utils ./src/utils
+COPY src/data ./src/data
+COPY src/models ./src/models
 COPY scripts/train.py ./scripts/
 
 # Set environment variables
@@ -53,22 +57,26 @@ ENTRYPOINT ["python", "scripts/train.py"]
 
 
 # =============================================================================
-# Stage 3: API Server (Main)
+# Stage 3: API Server (Production)
 # =============================================================================
 FROM python:3.11-slim AS api
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies (cached layer)
 COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (includes src/api/)
-COPY src/ ./src/
+# Copy only what's needed for API
+# Shared dependencies first (better caching)
+COPY src/utils ./src/utils
+COPY src/models ./src/models
+COPY src/api ./src/api
 
 # Set environment variables
 ENV MODEL_DIR=/models
 ENV LOG_LEVEL=INFO
+ENV PYTHONUNBUFFERED=1
 
 # Expose port
 EXPOSE 8080
@@ -80,6 +88,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 # Run API server
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--timeout", "120", "src.api.app:app"]
 
+
 # =============================================================================
 # Stage 4: Development
 # =============================================================================
@@ -87,16 +96,23 @@ FROM python:3.11-slim AS development
 
 WORKDIR /app
 
-# Install development dependencies
+# Install ALL dependencies including dev tools
 COPY build/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir jupyter notebook ipython pytest black flake8
+    pip install --no-cache-dir \
+        jupyter \
+        notebook \
+        ipython \
+        pytest \
+        pytest-cov \
+        black \
+        flake8 \
+        ipdb
 
-# Copy all code
+# Copy all code for development
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
-COPY api/ ./api/
 
 # Expose ports for Jupyter and API
 EXPOSE 8080 8888
