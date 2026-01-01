@@ -1,12 +1,21 @@
 pipeline {
     agent any
     
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'staging', 'production'],
+            description: 'Which environment to deploy to?'
+        )
+    }
+
     environment {
         DOCKER_REGISTRY     =   credentials('docker-registry-url')
         DOCKER_IMAGE_PREFIX =   credentials('docker-image-prefix')
         GIT_COMMIT_SHORT    =   sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         IMAGE_TAG           =   "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
         DOCKER_BUILDKIT     =   "1"
+        DEPLOY_ENV          =   "${params.ENVIRONMENT}"
     }
     
     stages {
@@ -159,6 +168,25 @@ pipeline {
                     sh '''
                         kubectl get pods -n default || echo "Pods not deployed yet"
                     '''
+                }
+            }
+        }
+
+        stage('Deploy to Environment') {
+            steps {
+                script {
+                    if (DEPLOY_ENV == 'production') {
+                        // Require manual approval for prod
+                        input message: 'Deploy to Production?', ok: 'Deploy'
+                    }
+                    
+                    sh """
+                        # Deploy to specific namespace
+                        helm upgrade --install dota2-app \
+                            ./deploy/helm \
+                            -f ./deploy/helm/values-${DEPLOY_ENV}.yaml \
+                            --namespace ${DEPLOY_ENV}
+                    """
                 }
             }
         }

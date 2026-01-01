@@ -1,9 +1,9 @@
-replicaCount: 3
+replicaCount: 2
 image:
   tag: ${IMAGE_TAG}
 resources:
   requests:
-    memory: "2Gi"
+    memory: "1Gi"
     
 mongodb:
   replicas: 3

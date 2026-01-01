@@ -1,0 +1,12 @@
+name: local-dota2-mongodb
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: local-dota2-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongodb:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: local_dota2_meta_lab

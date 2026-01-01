@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy organized source code
 COPY src/ ./src/
-COPY scripts/train.py ./scripts/
+COPY scripts/train_model.py ./scripts/
 
 # Set environment variables
 ENV DATA_DIR=/data/latest
@@ -49,7 +49,7 @@ ENV NUM_HEROES=130
 ENV LOG_LEVEL=INFO
 
 # This stage trains the model
-ENTRYPOINT ["python", "scripts/train.py"]
+ENTRYPOINT ["python", "scripts/train_model.py"]
 
 
 # =============================================================================

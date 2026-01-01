@@ -107,7 +107,7 @@ mlTraining:
     tag: latest
   command:
     - python
-    - /app/train.py
+    - /app/train_model.py
   nodeSelector:
     enabled: true
     workloadType: ml-training

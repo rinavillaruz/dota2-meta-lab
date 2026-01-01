@@ -1,6 +1,13 @@
 storage:
   createStorageClass: false
 
+replicaCount: 1
+image:
+  tag: latest
+resources:
+  requests:
+    memory: "512Mi"
+    
 mongodb:
   replicas: 3
   resources:

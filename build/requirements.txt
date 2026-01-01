@@ -26,3 +26,9 @@ redis>=5.0.0
 
 # Monitoring
 prometheus-client>=0.17.1
+
+scikit-learn
+
+matplotlib
+pymongo
+joblib
