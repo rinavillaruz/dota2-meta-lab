@@ -13,21 +13,52 @@ NC='\033[0m' # No Color
 
 # Determine environment (default to dev)
 ENVIRONMENT=${1:-dev}
+IMAGE_TAG=${2:-latest}
 
 echo -e "${BLUE}🎯 Deploying to environment: ${ENVIRONMENT}${NC}\n"
+echo -e "${BLUE}📦 Image tag: ${IMAGE_TAG}${NC}\n"
+
+# Detect if running in Jenkins
+if [ -n "$JENKINS_HOME" ]; then
+    echo -e "${BLUE}🤖 Running in Jenkins CI/CD${NC}"
+    IN_JENKINS=true
+    
+    # Skip Kind cluster creation
+    SKIP_KIND=true
+    
+    # Skip metrics server (already installed)
+    SKIP_METRICS=true
+    
+    # Skip interactive prompts
+    export DEBIAN_FRONTEND=noninteractive
+else
+    echo -e "${BLUE}💻 Running locally${NC}"
+    IN_JENKINS=false
+    SKIP_KIND=false
+    SKIP_METRICS=false
+fi
+echo ""
 
 # Step 0: Load environment variables from .env
 echo -e "${BLUE}🔐 Step 0: Loading environment variables...${NC}"
-if [ ! -f ../.env ]; then
-    echo -e "${RED}❌ Error: .env file not found in root directory!${NC}"
-    echo "Please create a .env file with:"
-    echo "  MONGODB_USERNAME=your_username"
-    echo "  MONGODB_PASSWORD=your_password"
-    exit 1
+if [ "$IN_JENKINS" = true ]; then
+    # In Jenkins: Use Kubernetes secrets
+    echo "Loading credentials from Kubernetes secrets..."
+    export MONGODB_USERNAME=$(cat /run/secrets/mongodb/username 2>/dev/null || echo "admin")
+    export MONGODB_PASSWORD=$(cat /run/secrets/mongodb/password 2>/dev/null || echo "password")
+else
+    # Locally: Use .env file
+    if [ ! -f ../.env ]; then
+        echo -e "${RED}❌ Error: .env file not found in root directory!${NC}"
+        echo "Please create a .env file with:"
+        echo "  MONGODB_USERNAME=your_username"
+        echo "  MONGODB_PASSWORD=your_password"
+        exit 1
+    fi
+    
+    # Load .env variables
+    export $(cat ../.env | grep -v '^#' | xargs)
 fi
-
-# Load .env variables
-export $(cat ../.env | grep -v '^#' | xargs)
 
 # Verify required variables are set
 if [ -z "$MONGODB_USERNAME" ] || [ -z "$MONGODB_PASSWORD" ]; then
@@ -38,58 +69,68 @@ fi
 echo -e "${GREEN}✅ Environment variables loaded${NC}\n"
 
 # Step 1: Check if cluster exists, if not create it
-echo -e "${BLUE}🔍 Step 1: Checking for existing cluster...${NC}"
-if kind get clusters | grep -q "ml-cluster"; then
-    echo -e "${YELLOW}⚠️  Cluster 'ml-cluster' already exists. Skipping creation.${NC}\n"
+if [ "$SKIP_KIND" = false ]; then
+    echo -e "${BLUE}🔍 Step 1: Checking for existing cluster...${NC}"
+    if kind get clusters | grep -q "ml-cluster"; then
+        echo -e "${YELLOW}⚠️  Cluster 'ml-cluster' already exists. Skipping creation.${NC}\n"
+    else
+        echo -e "${BLUE}🏗️  Creating directories...${NC}"
+        mkdir -p ../data/{control-plane-{1..3},ml-training,mongodb,redis} ../models
+        
+        echo -e "${BLUE}🏗️  Creating Kind cluster...${NC}"
+        kind create cluster --config ../k8s/ha/kind-ha-cluster.yaml --name ml-cluster
+        echo -e "${GREEN}✅ Cluster created${NC}\n"
+        
+        echo "⏳ Waiting for cluster to be ready..."
+        kubectl wait --for=condition=Ready nodes --all --timeout=180s
+        echo -e "${GREEN}✅ Cluster is ready${NC}\n"
+    fi
 else
-    echo -e "${BLUE}🏗️  Creating directories control planes, ml-training, mongodb, redis and models...${NC}"
-    mkdir -p ../data/{control-plane-{1..3},ml-training,mongodb,redis} ../models
-
-    echo -e "${BLUE}🏗️  Creating Kind cluster...${NC}"
-    kind create cluster --config ../k8s/ha/kind-ha-cluster.yaml --name ml-cluster
-    echo -e "${GREEN}✅ Cluster created${NC}\n"
-    
-    echo "⏳ Waiting for cluster to be ready..."
-    kubectl wait --for=condition=Ready nodes --all --timeout=180s
-    echo -e "${GREEN}✅ Cluster is ready${NC}\n"
+    echo -e "${BLUE}🔍 Step 1: Using existing Kubernetes cluster${NC}"
+    echo "Current context: $(kubectl config current-context)"
+    echo -e "${GREEN}✅ Cluster ready${NC}\n"
 fi
 
 # Step 1.5: Install Metrics Server
-echo -e "${BLUE}📊 Step 1.5: Installing Metrics Server...${NC}"
+if [ "$SKIP_METRICS" = false ]; then
+    echo -e "${BLUE}📊 Step 1.5: Installing Metrics Server...${NC}"
 
-# Verify kubectl can connect to the cluster
-if ! kubectl cluster-info &> /dev/null; then
-    echo -e "${RED}❌ Cannot connect to cluster. Please check your kubectl context.${NC}"
-    echo "Current context: $(kubectl config current-context 2>/dev/null || echo 'none')"
-    echo "Run: kubectl config use-context kind-ml-cluster"
-    exit 1
-fi
+    # Verify kubectl can connect to the cluster
+    if ! kubectl cluster-info &> /dev/null; then
+        echo -e "${RED}❌ Cannot connect to cluster. Please check your kubectl context.${NC}"
+        echo "Current context: $(kubectl config current-context 2>/dev/null || echo 'none')"
+        echo "Run: kubectl config use-context kind-ml-cluster"
+        exit 1
+    fi
 
-if kubectl get deployment metrics-server -n kube-system &> /dev/null; then
-    echo -e "${YELLOW}⚠️  Metrics server already installed${NC}\n"
+    if kubectl get deployment metrics-server -n kube-system &> /dev/null; then
+        echo -e "${YELLOW}⚠️  Metrics server already installed${NC}\n"
+    else
+        echo "Installing metrics server..."
+        kubectl apply --validate=false -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        
+        # Wait a moment for the deployment to be created
+        sleep 5
+        
+        # Patch for Kind (allow insecure TLS)
+        echo "Patching metrics server for Kind cluster..."
+        kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
+        {
+            "op": "add",
+            "path": "/spec/template/spec/containers/0/args/-",
+            "value": "--kubelet-insecure-tls"
+        }
+        ]'
+        
+        echo -e "${GREEN}✅ Metrics server installed${NC}"
+        echo "⏳ Waiting for metrics server to be ready..."
+        kubectl wait --for=condition=available --timeout=120s deployment/metrics-server -n kube-system || {
+            echo -e "${YELLOW}⚠️  Metrics server still starting (this is OK, it will be ready soon)${NC}"
+        }
+        echo ""
+    fi
 else
-    echo "Installing metrics server..."
-    kubectl apply --validate=false -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-    
-    # Wait a moment for the deployment to be created
-    sleep 5
-    
-    # Patch for Kind (allow insecure TLS)
-    echo "Patching metrics server for Kind cluster..."
-    kubectl patch deployment metrics-server -n kube-system --type='json' -p='[
-      {
-        "op": "add",
-        "path": "/spec/template/spec/containers/0/args/-",
-        "value": "--kubelet-insecure-tls"
-      }
-    ]'
-    
-    echo -e "${GREEN}✅ Metrics server installed${NC}"
-    echo "⏳ Waiting for metrics server to be ready..."
-    kubectl wait --for=condition=available --timeout=120s deployment/metrics-server -n kube-system || {
-        echo -e "${YELLOW}⚠️  Metrics server still starting (this is OK, it will be ready soon)${NC}"
-    }
-    echo ""
+    echo -e "${BLUE}📊 Step 1.5: Skipping metrics server (already installed)${NC}\n"
 fi
 
 # Step 2: Create namespaces
@@ -132,12 +173,14 @@ if helm list -n data | grep -q "dota2-meta-lab-${ENVIRONMENT}"; then
     helm upgrade dota2-meta-lab-${ENVIRONMENT} ../deploy/helm \
       -f ../deploy/helm/values.yaml \
       -f ../deploy/helm/values-${ENVIRONMENT}.yaml \
+      --set image.tag=${IMAGE_TAG} \
       --namespace data
 else
     echo "Installing Helm chart..."
     helm install dota2-meta-lab-${ENVIRONMENT} ../deploy/helm \
       -f ../deploy/helm/values.yaml \
       -f ../deploy/helm/values-${ENVIRONMENT}.yaml \
+      --set image.tag=${IMAGE_TAG} \
       --namespace data
 fi
 

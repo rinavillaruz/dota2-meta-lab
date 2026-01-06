@@ -139,57 +139,37 @@ pipeline {
             }
         }
         
-        stage('Update Helm Values') {
+        stage('Deploy to Environment') {
             steps {
-                echo '📝 Updating Helm values with new image tags...'
                 script {
+                    echo "🚀 Deploying to ${DEPLOY_ENV}..."
+                    
+                    // Production requires approval
+                    if (DEPLOY_ENV == 'production') {
+                        input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
+                    }
+                    
+                    // Use your existing deploy-with-helm.sh script
                     sh """
-                        sed -i 's|tag:.*|tag: ${IMAGE_TAG}|g' deploy/helm/values.yaml || true
+                        cd cli
+                        chmod +x deploy-with-helm.sh
+                        ./deploy-with-helm.sh ${DEPLOY_ENV} ${IMAGE_TAG}
                     """
-                }
-            }
-        }
-        
-        stage('Trigger ArgoCD Sync') {
-            steps {
-                echo '🔄 Triggering ArgoCD sync...'
-                script {
-                    sh '''
-                        kubectl apply -f argocd-apps/ || echo "ArgoCD apps not configured yet"
-                    '''
                 }
             }
         }
         
         stage('Verify Deployment') {
             steps {
-                echo '✅ Verifying deployment...'
-                script {
-                    sh '''
-                        kubectl get pods -n default || echo "Pods not deployed yet"
-                    '''
-                }
+                echo '🔍 Verifying deployment...'
+                sh """
+                    kubectl get pods -n data
+                    kubectl get svc -n data
+                """
             }
         }
 
-        stage('Deploy to Environment') {
-            steps {
-                script {
-                    if (DEPLOY_ENV == 'production') {
-                        // Require manual approval for prod
-                        input message: 'Deploy to Production?', ok: 'Deploy'
-                    }
-                    
-                    sh """
-                        # Deploy to specific namespace
-                        helm upgrade --install dota2-app \
-                            ./deploy/helm \
-                            -f ./deploy/helm/values-${DEPLOY_ENV}.yaml \
-                            --namespace ${DEPLOY_ENV}
-                    """
-                }
-            }
-        }
+        
     }
     
     post {
@@ -208,6 +188,7 @@ pipeline {
         }
         success {
             echo '✅ Pipeline completed successfully!'
+            echo "🚀 Deployed ${IMAGE_TAG} to ${DEPLOY_ENV}"  // ← ADD ONLY THIS LINE
         }
         failure {
             echo '❌ Pipeline failed!'
