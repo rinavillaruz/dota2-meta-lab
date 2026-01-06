@@ -129,22 +129,68 @@ if kubectl get namespace argocd &>/dev/null; then
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         echo "Removing ArgoCD..."
         
-        # Uninstall Helm release if it exists
-        if helm list -n argocd 2>/dev/null | grep -q "argocd"; then
-            echo "Uninstalling ArgoCD Helm release..."
-            helm uninstall argocd -n argocd --timeout=120s 2>/dev/null || true
+        # Step 1: Delete all ArgoCD applications (prevents finalizer issues)
+        echo "Deleting ArgoCD applications..."
+        if kubectl get crd applications.argoproj.io &>/dev/null; then
+            for app in $(kubectl get applications -n argocd -o name 2>/dev/null); do
+                echo "  Removing finalizers from $app..."
+                kubectl patch $app -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+            done
+            kubectl delete applications --all -n argocd --timeout=10s 2>/dev/null || true
         fi
         
-        # Delete namespace
-        kubectl delete namespace argocd --timeout=120s
+        # Step 2: Delete CRDs (so their finalizers don't block namespace deletion)
+        echo "Deleting ArgoCD CRDs..."
+        kubectl delete crd applications.argoproj.io --timeout=10s 2>/dev/null || true
+        kubectl delete crd applicationsets.argoproj.io --timeout=10s 2>/dev/null || true
+        kubectl delete crd appprojects.argoproj.io --timeout=10s 2>/dev/null || true
         
-        # Clean up CRDs
-        echo "Cleaning up ArgoCD CRDs..."
-        kubectl delete crd applications.argoproj.io --ignore-not-found=true --timeout=60s
-        kubectl delete crd applicationsets.argoproj.io --ignore-not-found=true --timeout=60s
-        kubectl delete crd appprojects.argoproj.io --ignore-not-found=true --timeout=60s
+        # Step 3: Force delete all resources in namespace
+        echo "Force deleting all resources in argocd namespace..."
+        kubectl delete all --all -n argocd --force --grace-period=0 --timeout=10s 2>/dev/null || true
         
-        echo -e "${GREEN}✅ ArgoCD removed${NC}\n"
+        # Step 4: Remove namespace finalizers (this is the key!)
+        echo "Removing namespace finalizers..."
+        kubectl patch namespace argocd -p '{"spec":{"finalizers":[]}}' --type=merge 2>/dev/null || {
+            # Fallback: try with metadata finalizers
+            kubectl patch namespace argocd -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+        }
+        
+        # Step 5: Delete the namespace (should be instant now)
+        echo "Deleting namespace..."
+        kubectl delete namespace argocd --timeout=5s 2>/dev/null || true
+        
+        # Step 6: Verify deletion
+        sleep 2
+        if kubectl get namespace argocd &>/dev/null; then
+            echo -e "${YELLOW}⚠️  Namespace still exists, trying API finalization...${NC}"
+            
+            # Last resort: Direct API call to remove finalizers
+            if command -v jq &>/dev/null; then
+                kubectl get namespace argocd -o json 2>/dev/null | \
+                  jq '.spec.finalizers = []' | \
+                  kubectl replace --raw /api/v1/namespaces/argocd/finalize -f - 2>/dev/null || true
+            else
+                echo -e "${RED}❌ jq not installed, cannot force finalization${NC}"
+                echo "Install with: brew install jq"
+                echo "Then run: kubectl get namespace argocd -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/argocd/finalize -f -"
+            fi
+            
+            sleep 2
+        fi
+        
+        # Final check
+        if kubectl get namespace argocd &>/dev/null; then
+            echo -e "${RED}❌ ArgoCD namespace still exists (stuck in Terminating)${NC}"
+            echo ""
+            echo "Manual cleanup required:"
+            echo "  1. Install jq: brew install jq"
+            echo "  2. Run: kubectl get namespace argocd -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/argocd/finalize -f -"
+            echo "  3. Or edit manually: kubectl edit namespace argocd (remove finalizers section)"
+        else
+            echo -e "${GREEN}✅ ArgoCD removed${NC}"
+        fi
+        echo ""
     else
         echo -e "${YELLOW}ℹ️  Keeping ArgoCD${NC}\n"
     fi

@@ -44,44 +44,50 @@ pipeline {
         }
         
         stage('Build Docker Images') {
+            environment {
+                // Define these locally to avoid interpolation warnings
+                REGISTRY = "${env.DOCKER_REGISTRY}"
+                PREFIX = "${env.DOCKER_IMAGE_PREFIX}"
+                TAG = "${env.IMAGE_TAG}"
+            }
             steps {
                 echo '🐳 Building multi-stage Docker images in parallel...'
                 script {
-                    echo "Building images with tag: ${IMAGE_TAG}"
+                    echo "Building images with tag: ${TAG}"
                     
                     parallel(
                         'data-fetcher': {
                             echo '📦 Building Data Fetcher...'
-                            sh """
+                            sh '''
                                 docker build \
                                     --target data-fetcher \
                                     -f build/Dockerfile.dev \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-fetcher:${TAG} \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-fetcher:latest \
                                     .
-                            """
+                            '''
                         },
                         'trainer': {
                             echo '🤖 Building ML Trainer...'
-                            sh """
+                            sh '''
                                 docker build \
                                     --target trainer \
                                     -f build/Dockerfile.dev \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-trainer:${TAG} \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-trainer:latest \
                                     .
-                            """
+                            '''
                         },
                         'api': {
                             echo '🌐 Building API Service...'
-                            sh """
+                            sh '''
                                 docker build \
                                     --target api \
                                     -f build/Dockerfile.dev \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
-                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-api:${TAG} \
+                                    -t ${REGISTRY}/${PREFIX}/dota2-api:latest \
                                     .
-                            """
+                            '''
                         }
                     )
                 }

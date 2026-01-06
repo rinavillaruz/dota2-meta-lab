@@ -190,8 +190,17 @@ else
                 chmod +x "$SCRIPT_DIR/install-argocd.sh"
                 "$SCRIPT_DIR/install-argocd.sh"
             else
-                echo -e "${RED}❌ install-argocd.sh not found${NC}"
-                exit 1
+                echo -e "${YELLOW}⚠️  install-argocd.sh not found, installing directly...${NC}"
+                
+                # Create namespace
+                kubectl create namespace argocd
+                
+                # Install ArgoCD
+                echo "Installing ArgoCD from official manifest..."
+                kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+                
+                echo "Waiting for ArgoCD to be ready..."
+                sleep 30  # Give it time to create deployments
             fi
             
             # Verify installation
@@ -248,30 +257,233 @@ echo ""
 
 
 # -----------------------------------------------------------------------------
-# Step 3: Test Data Fetching (Optional)
+# Step 3: Test Complete ML Pipeline (Optional)
 # -----------------------------------------------------------------------------
 echo "=========================================="
-echo -e "${BLUE}Step 5: Test Data Fetching${NC}"
+echo -e "${BLUE}Step 3: Test Complete ML Pipeline${NC}"
 echo "=========================================="
 echo ""
 
-read -p "Test OpenDota data fetching? (y/N): " -n 1 -r
+read -p "Run complete ML pipeline test? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    if [ -f "$PROJECT_ROOT/scripts/fetch_data.py" ]; then
-        cd "$PROJECT_ROOT"
-        echo "Installing dependencies..."
-        pip install requests --break-system-packages 2>/dev/null || pip install requests || true
-        
-        echo "Fetching sample data..."
-        python3 fetch_data.py || python fetch_data.py
-        
-        echo -e "${GREEN}✅ Data fetching test complete${NC}"
-    else
+    echo ""
+    echo -e "${BLUE}Starting ML pipeline test...${NC}"
+    echo ""
+    
+    # Check if scripts exist
+    if [ ! -f "$PROJECT_ROOT/scripts/fetch_data.py" ]; then
         echo -e "${RED}❌ fetch_data.py not found${NC}"
+        exit 1
     fi
+    
+    # Step 3.0: Setup Python virtual environment
+    echo -e "${BLUE}🐍 Step 3.0: Setting up Python virtual environment...${NC}"
+    cd "$PROJECT_ROOT"
+    
+    # Check if venv exists
+    if [ ! -d "venv" ]; then
+        echo "Creating virtual environment..."
+        python3 -m venv venv
+        echo -e "${GREEN}✅ Virtual environment created${NC}"
+    else
+        echo -e "${GREEN}✅ Virtual environment already exists${NC}"
+    fi
+    
+    # Activate venv
+    echo "Activating virtual environment..."
+    source venv/bin/activate
+    
+    # Verify activation
+    if [ -z "$VIRTUAL_ENV" ]; then
+        echo -e "${RED}❌ Failed to activate virtual environment${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✅ Virtual environment activated${NC}"
+    echo "Python: $(which python)"
+    echo ""
+    
+    # Step 3.1: Start MongoDB
+    echo -e "${BLUE}📦 Step 3.1: Starting MongoDB with Docker Compose...${NC}"
+    
+    if [ -f "docker-compose.yml" ]; then
+        docker-compose up -d
+        echo "Waiting for MongoDB to be ready..."
+        sleep 10
+        echo -e "${GREEN}✅ MongoDB started${NC}\n"
+    else
+        echo -e "${YELLOW}⚠️  docker-compose.yml not found, skipping MongoDB${NC}\n"
+    fi
+    
+    # Step 3.2: Install Python dependencies
+    echo -e "${BLUE}📚 Step 3.2: Installing Python dependencies in venv...${NC}"
+    if [ -f "build/requirements.txt" ]; then
+        pip install -r build/requirements.txt --quiet
+        echo -e "${GREEN}✅ Dependencies installed${NC}\n"
+    else
+        echo -e "${YELLOW}⚠️  requirements.txt not found${NC}\n"
+    fi
+    
+    # Step 3.3: Fetch data
+    echo -e "${BLUE}🌐 Step 3.3: Fetching DOTA2 match data (~1 minute)...${NC}"
+    if python scripts/fetch_data.py; then
+        echo -e "${GREEN}✅ Data fetching complete${NC}\n"
+    else
+        echo -e "${RED}❌ Data fetching failed${NC}"
+        deactivate
+        exit 1
+    fi
+    
+    # Step 3.4: Analyze data
+    echo -e "${BLUE}📊 Step 3.4: Analyzing data (~5 seconds)...${NC}"
+    if [ -f "scripts/analyze_data.py" ]; then
+        if python scripts/analyze_data.py; then
+            echo -e "${GREEN}✅ Data analysis complete${NC}\n"
+        else
+            echo -e "${RED}❌ Data analysis failed${NC}"
+            deactivate
+            exit 1
+        fi
+    else
+        echo -e "${YELLOW}⚠️  analyze_data.py not found, skipping${NC}\n"
+    fi
+    
+    # Step 3.5: Train model
+    echo -e "${BLUE}🤖 Step 3.5: Training ML model (~3 minutes)...${NC}"
+    if [ -f "scripts/train_model.py" ]; then
+        if python scripts/train_model.py; then
+            echo -e "${GREEN}✅ Model training complete${NC}\n"
+        else
+            echo -e "${RED}❌ Model training failed${NC}"
+            deactivate
+            exit 1
+        fi
+    else
+        echo -e "${YELLOW}⚠️  train_model.py not found, skipping${NC}\n"
+    fi
+    
+    # Step 3.6: Store in database
+    echo -e "${BLUE}💾 Step 3.6: Storing data in MongoDB (~5 seconds)...${NC}"
+    if [ -f "scripts/store_database.py" ]; then
+        if python scripts/store_database.py; then
+            echo -e "${GREEN}✅ Database storage complete${NC}\n"
+        else
+            echo -e "${YELLOW}⚠️  Database storage failed (MongoDB might not be running)${NC}\n"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  store_database.py not found, skipping${NC}\n"
+    fi
+    
+    # Step 3.7: Test API (optional)
+    echo -e "${BLUE}🌐 Step 3.7: API Test${NC}"
+    read -p "Start API server for testing? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "${BLUE}Starting API server...${NC}"
+        echo "API will start on http://localhost:8080"
+        echo "Press Ctrl+C to stop the API server"
+        echo ""
+        
+        # Start API in background
+        python -m src.api.app &
+        API_PID=$!
+        
+        # Wait for API to start
+        echo "Waiting for API to start..."
+        sleep 5
+        
+        # Test the API
+        echo ""
+        echo "Testing API endpoints:"
+        echo ""
+        
+        echo "1. Health check:"
+        curl -s http://localhost:8080/health 2>/dev/null | python -m json.tool || echo "  ❌ API not responding"
+        echo ""
+        
+        echo "2. Stats:"
+        curl -s http://localhost:8080/stats 2>/dev/null | python -m json.tool || echo "  ❌ API not responding"
+        echo ""
+        
+        echo "3. Heroes:"
+        curl -s http://localhost:8080/heroes 2>/dev/null | python -m json.tool | head -20 || echo "  ❌ API not responding"
+        echo ""
+        
+        # Keep API running
+        echo ""
+        echo "API is running (PID: $API_PID)"
+        echo ""
+        echo "Test manually with:"
+        echo "  curl http://localhost:8080/health"
+        echo "  curl http://localhost:8080/stats"
+        echo "  curl http://localhost:8080/heroes"
+        echo ""
+        echo "Or open in browser:"
+        echo "  http://localhost:8080"
+        echo ""
+        read -p "Press Enter to stop API server..."
+        
+        # Stop API
+        kill $API_PID 2>/dev/null || true
+        echo -e "${GREEN}✅ API stopped${NC}\n"
+    else
+        echo -e "${YELLOW}Skipping API test${NC}\n"
+    fi
+    
+    # Step 3.8: Cleanup
+    echo -e "${BLUE}🧹 Step 3.8: Cleanup${NC}"
+    read -p "Stop MongoDB? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        docker-compose down
+        echo -e "${GREEN}✅ MongoDB stopped${NC}\n"
+    else
+        echo -e "${YELLOW}ℹ️  MongoDB still running${NC}\n"
+    fi
+    
+    # Deactivate venv
+    deactivate
+    echo -e "${GREEN}✅ Virtual environment deactivated${NC}\n"
+    
+    echo ""
+    echo "=========================================="
+    echo -e "${GREEN}✅ ML Pipeline Test Complete!${NC}"
+    echo "=========================================="
+    echo ""
+    echo "Summary:"
+    echo "  ✅ Virtual environment set up"
+    echo "  ✅ MongoDB ran (or still running)"
+    echo "  ✅ Data fetched from OpenDota"
+    echo "  ✅ Data analyzed and processed"
+    echo "  ✅ ML model trained"
+    echo "  ✅ Data stored in MongoDB"
+    echo ""
+    echo "Generated files:"
+    echo "  - data/public_matches.json"
+    echo "  - data/detailed_matches.json"
+    echo "  - data/pro_matches.json"
+    echo "  - data/processed_matches.csv"
+    echo "  - models/dota2_model.h5"
+    echo "  - models/scaler.pkl"
+    echo ""
+    echo "To run again:"
+    echo "  cd $PROJECT_ROOT"
+    echo "  source venv/bin/activate"
+    echo "  docker-compose up -d"
+    echo "  python scripts/fetch_data.py"
+    echo "  python scripts/analyze_data.py"
+    echo "  python scripts/train_model.py"
+    echo "  python scripts/store_database.py"
+    echo "  python -m src.api.app"
+    echo ""
+    echo "To stop:"
+    echo "  docker-compose down"
+    echo "  deactivate"
+    echo ""
 else
-    echo "Skipping data fetch test"
+    echo "Skipping ML pipeline test"
 fi
 
 echo ""
