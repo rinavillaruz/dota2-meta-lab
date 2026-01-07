@@ -35,7 +35,8 @@ if [ ! -d "$JENKINS_DIR" ]; then
     echo "          ├── 04-pvc.yaml"
     echo "          ├── 05-configmap.yaml"
     echo "          ├── 06-deployment.yaml"
-    echo "          └── 07-service.yaml"
+    echo "          ├── 07-rbac.yaml"
+    echo "          └── 08-service.yaml"
     echo ""
     echo "Please create the jenkins-k8s directory structure first."
     exit 1
@@ -67,19 +68,67 @@ if ! docker pull rinavillaruz/jenkins-docker:latest > /dev/null 2>&1; then
     docker rmi rinavillaruz/jenkins-docker:latest 2>/dev/null || true
     
     # Create Dockerfile if it doesn't exist
-    if [ ! -f "$PROJECT_ROOT/jenkins-k8s/Dockerfile" ]; then
+    if [ ! -f "$PROJECT_ROOT/jenkins-k8s/docker/Dockerfile" ]; then
         echo "Creating Dockerfile..."
-        cat > "$PROJECT_ROOT/jenkins-k8s/Dockerfile" <<'EOF'
+        mkdir -p "$PROJECT_ROOT/jenkins-k8s/docker"
+        cat > "$PROJECT_ROOT/jenkins-k8s/docker/Dockerfile" <<'EOF'
 FROM jenkins/jenkins:lts-jdk21
 
 USER root
 
-# Install Docker CLI
-RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz -o docker.tgz && \
-    tar --extract --file docker.tgz --strip-components 1 --directory /usr/local/bin/ && \
-    rm docker.tgz && \
+# Install Docker CLI (latest version), kubectl, Helm, Buildx, and jq
+RUN apt-get update && \
+    apt-get install -y \
+        ca-certificates \
+        curl \
+        gnupg \
+        jq && \
+    # =================================================================
+    # Docker Installation
+    # =================================================================
+    # Add Docker's official GPG key
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc && \
+    # Add Docker repository
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    # Install Docker CLI and Buildx
+    apt-get update && \
+    apt-get install -y \
+        docker-ce-cli \
+        docker-buildx-plugin && \
+    # =================================================================
+    # kubectl Installation
+    # =================================================================
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+    rm kubectl && \
+    # =================================================================
+    # Helm Installation
+    # =================================================================
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash && \
+    # =================================================================
+    # User Setup
+    # =================================================================
+    # Add jenkins to docker group
     groupadd -f docker && \
-    usermod -aG docker jenkins
+    usermod -aG docker jenkins && \
+    # =================================================================
+    # Cleanup
+    # =================================================================
+    rm -rf /var/lib/apt/lists/*
+
+# Verify all installations
+RUN echo "========================================" && \
+    echo "✅ Installed versions:" && \
+    docker --version && \
+    kubectl version --client && \
+    helm version && \
+    jq --version && \
+    echo "========================================"
 
 USER jenkins
 EOF
@@ -87,8 +136,8 @@ EOF
     fi
     
     echo ""
-    echo "🐳 Building Jenkins image with Docker CLI..."
-    cd "$PROJECT_ROOT/jenkins-k8s"
+    echo "🐳 Building Jenkins image with Docker, kubectl, and Helm..."
+    cd "$PROJECT_ROOT/jenkins-k8s/docker"
     docker build -t rinavillaruz/jenkins-docker:latest . || {
         echo -e "${RED}❌ Docker build failed${NC}"
         exit 1
@@ -128,6 +177,7 @@ EOF
     fi
     
     echo -e "${GREEN}✅ Image ready${NC}"
+    cd "$PROJECT_ROOT"
     echo ""
 else
     echo -e "${GREEN}✅ Jenkins Docker image already exists on Docker Hub${NC}"
@@ -218,7 +268,7 @@ kubectl apply -f "$JENKINS_DIR/01-serviceaccount.yaml"
 echo -e "${GREEN}✅ ServiceAccount created${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 2: Set up RBAC
+# Step 2: Set up RBAC (Jenkins namespace access)
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 2: Setting up RBAC (ClusterRole & Binding)...${NC}"
 kubectl apply -f "$JENKINS_DIR/02-clusterrole.yaml"
@@ -264,16 +314,42 @@ kubectl apply -f "$JENKINS_DIR/06-deployment.yaml"
 echo -e "${GREEN}✅ Deployment created${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 7: Create Service
+# Step 7: Set up Jenkins RBAC for Deployments
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 7: Creating Jenkins Service...${NC}"
-kubectl apply -f "$JENKINS_DIR/07-service.yaml"
-echo -e "${GREEN}✅ Service created${NC}\n"
+echo -e "${BLUE}Step 7: Setting up Jenkins deployment permissions...${NC}"
+if [ -f "$JENKINS_DIR/07-rbac.yaml" ]; then
+    kubectl apply -f "$JENKINS_DIR/07-rbac.yaml"
+    echo -e "${GREEN}✅ Deployment RBAC configured${NC}"
+    echo -e "${GREEN}   Jenkins can now deploy to Kubernetes!${NC}\n"
+else
+    echo -e "${YELLOW}⚠️  07-rbac.yaml not found${NC}"
+    echo -e "${YELLOW}⚠️  Jenkins may not have permissions to deploy applications${NC}"
+    echo -e "${YELLOW}   Create 07-rbac.yaml to grant deployment permissions${NC}\n"
+fi
 
 # -----------------------------------------------------------------------------
-# Step 8: Wait for Jenkins to be ready
+# Step 8: Create Service
 # -----------------------------------------------------------------------------
-echo -e "${BLUE}Step 8: Waiting for Jenkins pod to be ready...${NC}"
+echo -e "${BLUE}Step 8: Creating Jenkins Service...${NC}"
+if [ -f "$JENKINS_DIR/08-service.yaml" ]; then
+    kubectl apply -f "$JENKINS_DIR/08-service.yaml"
+    echo -e "${GREEN}✅ Service created${NC}\n"
+elif [ -f "$JENKINS_DIR/07-service.yaml" ]; then
+    # Fallback for old naming
+    echo -e "${YELLOW}⚠️  Using old filename: 07-service.yaml${NC}"
+    echo -e "${YELLOW}   Consider renaming to 08-service.yaml${NC}"
+    kubectl apply -f "$JENKINS_DIR/07-service.yaml"
+    echo -e "${GREEN}✅ Service created${NC}\n"
+else
+    echo -e "${RED}❌ Service file not found${NC}"
+    echo -e "${RED}   Expected: $JENKINS_DIR/08-service.yaml${NC}\n"
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Step 9: Wait for Jenkins to be ready
+# -----------------------------------------------------------------------------
+echo -e "${BLUE}Step 9: Waiting for Jenkins pod to be ready...${NC}"
 echo "This may take 2-3 minutes (downloading image and installing plugins)..."
 echo ""
 
@@ -324,11 +400,11 @@ kubectl wait --for=condition=ready pod -l app=jenkins -n jenkins --timeout=300s 
 echo -e "${GREEN}✅ Jenkins is ready!${NC}\n"
 
 # -----------------------------------------------------------------------------
-# Step 9: Get Jenkins info and verify plugins
+# Step 10: Get Jenkins info and verify plugins
 # -----------------------------------------------------------------------------
 JENKINS_POD=$(kubectl get pods -n jenkins -l app=jenkins -o jsonpath='{.items[0].metadata.name}')
 
-echo -e "${BLUE}Step 9: Retrieving Jenkins information...${NC}"
+echo -e "${BLUE}Step 10: Retrieving Jenkins information...${NC}"
 echo "Jenkins Pod: $JENKINS_POD"
 echo ""
 
@@ -343,6 +419,14 @@ else
     echo "Check init container logs for errors:"
     echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
 fi
+
+echo ""
+
+# Verify kubectl, helm, and docker are installed
+echo "Verifying tools in Jenkins container..."
+kubectl exec -n jenkins $JENKINS_POD -- docker --version
+kubectl exec -n jenkins $JENKINS_POD -- kubectl version --client
+kubectl exec -n jenkins $JENKINS_POD -- helm version
 
 echo ""
 
@@ -376,6 +460,14 @@ kubectl get all,pvc,configmap,secret -n jenkins
 
 echo ""
 echo "=========================================="
+echo -e "${BLUE}RBAC Permissions:${NC}"
+echo "=========================================="
+echo ""
+kubectl get clusterrole jenkins-deployer 2>/dev/null && echo "  ✅ ClusterRole: jenkins-deployer" || echo "  ❌ ClusterRole: Not found"
+kubectl get clusterrolebinding jenkins-deployer-binding 2>/dev/null && echo "  ✅ ClusterRoleBinding: jenkins-deployer-binding" || echo "  ❌ ClusterRoleBinding: Not found"
+
+echo ""
+echo "=========================================="
 echo -e "${YELLOW}📝 Next Steps${NC}"
 echo "=========================================="
 echo ""
@@ -387,13 +479,7 @@ echo ""
 echo "3. Verify plugins are installed:"
 echo "   Manage Jenkins → Plugins → Installed plugins"
 echo ""
-echo "4. Configure credentials (if not using JCasC):"
-echo "   Manage Jenkins → Credentials → System → Global credentials"
-echo "   Add:"
-echo "   - GitHub Personal Access Token (ID: github-credentials)"
-echo "   - Docker Hub credentials (ID: docker-hub-credentials)"
-echo ""
-echo "5. Create your first pipeline:"
+echo "4. Create your first pipeline:"
 echo "   New Item → Pipeline → OK"
 echo "   - Pipeline definition: Pipeline script from SCM"
 echo "   - SCM: Git"
@@ -407,24 +493,22 @@ echo ""
 echo "View Jenkins logs:"
 echo "  kubectl logs -n jenkins $JENKINS_POD -c jenkins -f"
 echo ""
-echo "View plugin installation logs:"
-echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+echo "Test kubectl access:"
+echo "  kubectl exec -n jenkins $JENKINS_POD -- kubectl get namespaces"
 echo ""
-echo "Check installed plugins:"
-echo "  kubectl exec -n jenkins $JENKINS_POD -- ls /var/jenkins_home/plugins/*.jpi"
+echo "Test helm:"
+echo "  kubectl exec -n jenkins $JENKINS_POD -- helm list -A"
+echo ""
+echo "Test docker:"
+echo "  kubectl exec -n jenkins $JENKINS_POD -- docker ps"
 echo ""
 echo "Restart Jenkins:"
 echo "  kubectl rollout restart deployment/jenkins -n jenkins"
 echo ""
-echo "Check Jenkins status:"
-echo "  kubectl get pods -n jenkins"
-echo "  kubectl get svc -n jenkins"
-echo ""
-echo "Access Jenkins pod:"
-echo "  kubectl exec -it -n jenkins $JENKINS_POD -- /bin/bash"
-echo ""
 echo "Uninstall Jenkins:"
 echo "  kubectl delete namespace jenkins"
+echo "  kubectl delete clusterrole jenkins-deployer"
+echo "  kubectl delete clusterrolebinding jenkins-deployer-binding"
 echo ""
 echo "=========================================="
 echo -e "${GREEN}🎉 Happy CI/CD-ing!${NC}"
