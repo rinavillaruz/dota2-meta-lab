@@ -1,16 +1,41 @@
+# syntax=docker/dockerfile:1
 # Multi-stage Dockerfile for Dota2 Meta Lab - Production Optimized
 # Organized structure with minimal image sizes and optimal layer caching
 
 # =============================================================================
-# Stage 1: Data Fetcher
+# Base Stage - Shared Dependencies
 # =============================================================================
-FROM python:3.11-slim AS data-fetcher
+FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install dependencies (cached layer)
+# Set environment variables for Python and pip
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies (if needed)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# =============================================================================
+# Stage 1: Data Fetcher
+# =============================================================================
+FROM base AS data-fetcher
+
+# Copy requirements
 COPY build/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Python packages with cache mount and progress
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "📦 Installing packages for data-fetcher..." && \
+    pip install --progress-bar on -r requirements.txt && \
+    echo "✅ Packages installed successfully!"
 
 # Copy only what's needed for data fetching
 COPY src/data ./src/data
@@ -29,13 +54,16 @@ ENTRYPOINT ["python", "scripts/fetch_data.py"]
 # =============================================================================
 # Stage 2: Model Trainer
 # =============================================================================
-FROM python:3.11-slim AS trainer
+FROM base AS trainer
 
-WORKDIR /app
-
-# Install dependencies (cached layer)
+# Copy requirements
 COPY build/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Python packages with cache mount and progress
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "🤖 Installing packages for trainer..." && \
+    pip install --progress-bar on -r requirements.txt && \
+    echo "✅ Packages installed successfully!"
 
 # Copy only what's needed for training
 # Order matters for cache efficiency - least changing files first
@@ -59,13 +87,16 @@ ENTRYPOINT ["python", "scripts/train_model.py"]
 # =============================================================================
 # Stage 3: API Server (Production)
 # =============================================================================
-FROM python:3.11-slim AS api
+FROM base AS api
 
-WORKDIR /app
-
-# Install dependencies (cached layer)
+# Copy requirements
 COPY build/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Python packages with cache mount and progress
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "🌐 Installing packages for API..." && \
+    pip install --progress-bar on -r requirements.txt && \
+    echo "✅ Packages installed successfully!"
 
 # Copy only what's needed for API
 # Shared dependencies first (better caching)
@@ -92,14 +123,17 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--timeout", "120",
 # =============================================================================
 # Stage 4: Development
 # =============================================================================
-FROM python:3.11-slim AS development
+FROM base AS development
 
-WORKDIR /app
-
-# Install ALL dependencies including dev tools
+# Copy requirements
 COPY build/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir \
+
+# Install ALL dependencies including dev tools with cache mount
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "🔧 Installing packages for development..." && \
+    pip install --progress-bar on -r requirements.txt && \
+    echo "📚 Installing development tools..." && \
+    pip install --progress-bar on \
         jupyter \
         notebook \
         ipython \
@@ -107,7 +141,8 @@ RUN pip install --no-cache-dir -r requirements.txt && \
         pytest-cov \
         black \
         flake8 \
-        ipdb
+        ipdb && \
+    echo "✅ All packages installed successfully!"
 
 # Copy all code for development
 COPY src/ ./src/
