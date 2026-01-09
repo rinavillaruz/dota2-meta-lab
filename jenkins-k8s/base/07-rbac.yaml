@@ -35,6 +35,11 @@ rules:
     resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   
+  # Job management
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
   # Ingress management
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
@@ -49,6 +54,11 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch"]
+  
+  # Node information (for status display)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
 
 ---
 # ClusterRoleBinding: Gives the Jenkins ServiceAccount these permissions

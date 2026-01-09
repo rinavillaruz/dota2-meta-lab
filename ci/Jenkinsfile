@@ -7,6 +7,12 @@ pipeline {
             choices: ['dev', 'staging', 'production'],
             description: 'Which environment to deploy to?'
         )
+
+        booleanParam(
+            name: 'RUN_TESTS',
+            defaultValue: false,
+            description: 'Run tests? (Adds ~3s)'
+        )
     }
 
     environment {
@@ -27,6 +33,10 @@ pipeline {
         }
         
         stage('Test') {
+            when {
+                expression { params.RUN_TESTS == true }
+            }
+
             steps {
                 echo '🧪 Running tests in Python container...'
                 sh '''
@@ -62,8 +72,11 @@ pipeline {
                                 docker build \
                                     --target data-fetcher \
                                     -f build/Dockerfile.dev \
+                                    --cache-from type=local,src=/tmp/buildx-cache \
+                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-fetcher:${TAG} \
                                     -t ${REGISTRY}/${PREFIX}/dota2-fetcher:latest \
+                                    --load \
                                     .
                             '''
                         },
@@ -73,8 +86,11 @@ pipeline {
                                 docker build \
                                     --target trainer \
                                     -f build/Dockerfile.dev \
+                                    --cache-from type=local,src=/tmp/buildx-cache \
+                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-trainer:${TAG} \
                                     -t ${REGISTRY}/${PREFIX}/dota2-trainer:latest \
+                                    --load \
                                     .
                             '''
                         },
@@ -84,8 +100,11 @@ pipeline {
                                 docker build \
                                     --target api \
                                     -f build/Dockerfile.dev \
+                                    --cache-from type=local,src=/tmp/buildx-cache \
+                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-api:${TAG} \
                                     -t ${REGISTRY}/${PREFIX}/dota2-api:latest \
+                                    --load \
                                     .
                             '''
                         }
@@ -97,23 +116,50 @@ pipeline {
         stage('Push Docker Images') {
             steps {
                 echo '📤 Pushing images to Docker Hub...'
-                sh '''
-                    # Login once
-                    DOCKERHUB_USERNAME=$(cat /run/secrets/dockerhub/username)
-                    DOCKERHUB_TOKEN=$(cat /run/secrets/dockerhub/token)
-                    echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+                script {
+                    // Determine if we should push :latest tag
+                    def pushLatest = (params.ENVIRONMENT == 'production')
                     
-                    echo "📤 Pushing all images..."
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} &
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest &
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} &
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest &
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} &
-                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest &
-                    wait
+                    parallel(
+                        'push-fetcher': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
+                            """
+                            // Only push :latest for production
+                            if (pushLatest) {
+                                sh """
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
+                                """
+                            }
+                        },
+                        'push-trainer': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
+                            """
+                            if (pushLatest) {
+                                sh """
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
+                                """
+                            }
+                        },
+                        'push-api': {
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
+                            """
+                            if (pushLatest) {
+                                sh """
+                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
+                                """
+                            }
+                        }
+                    )
                     
-                    echo "✅ All images pushed!"
-                '''
+                    if (pushLatest) {
+                        echo '📦 Pushed :latest tags for production'
+                    } else {
+                        echo '⏭️  Skipped :latest tags (not production)'
+                    }
+                }
             }
         }
 
