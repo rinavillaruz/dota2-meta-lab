@@ -72,11 +72,7 @@ pipeline {
                                 docker build \
                                     --target data-fetcher \
                                     -f build/Dockerfile.dev \
-                                    --cache-from type=local,src=/tmp/buildx-cache \
-                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-fetcher:${TAG} \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-fetcher:latest \
-                                    --load \
                                     .
                             '''
                         },
@@ -86,11 +82,7 @@ pipeline {
                                 docker build \
                                     --target trainer \
                                     -f build/Dockerfile.dev \
-                                    --cache-from type=local,src=/tmp/buildx-cache \
-                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-trainer:${TAG} \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-trainer:latest \
-                                    --load \
                                     .
                             '''
                         },
@@ -100,11 +92,7 @@ pipeline {
                                 docker build \
                                     --target api \
                                     -f build/Dockerfile.dev \
-                                    --cache-from type=local,src=/tmp/buildx-cache \
-                                    --cache-to type=local,dest=/tmp/buildx-cache,mode=max \
                                     -t ${REGISTRY}/${PREFIX}/dota2-api:${TAG} \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-api:latest \
-                                    --load \
                                     .
                             '''
                         }
