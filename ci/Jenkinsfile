@@ -21,10 +21,27 @@ pipeline {
         GIT_COMMIT_SHORT    =   sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         IMAGE_TAG           =   "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
         DOCKER_BUILDKIT     =   "1"
-        DEPLOY_ENV          =   "${params.ENVIRONMENT}"
+        
+        // Auto-detect environment from branch
+        DEPLOY_ENV          = determineEnvironment()
+        
+        // Slack webhook
+        SLACK_WEBHOOK       = credentials('slack-webhook-url')
     }
     
     stages {
+        stage('Notify Start') {
+            steps {
+                script {
+                    sendSlackNotification(
+                        "🚀 *Build Started* #${BUILD_NUMBER}",
+                        "Branch: `${env.GIT_BRANCH}`\nEnvironment: `${DEPLOY_ENV}`\nCommit: `${GIT_COMMIT_SHORT}`",
+                        "#36a64f"
+                    )
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 echo '📦 Checking out code...'
@@ -34,7 +51,7 @@ pipeline {
         
         stage('Test') {
             when {
-                expression { params.RUN_TESTS == true }
+                expression { params.RUN_TESTS == true || env.GIT_BRANCH == 'origin/main' }
             }
 
             steps {
@@ -65,6 +82,12 @@ pipeline {
                 script {
                     echo "Building images with tag: ${TAG}"
                     
+                    sendSlackNotification(
+                        "🐳 Building Docker Images...",
+                        "Tag: `${IMAGE_TAG}`",
+                        "#439FE0"
+                    )
+
                     parallel(
                         'data-fetcher': {
                             echo '📦 Building Data Fetcher...'
@@ -184,6 +207,12 @@ pipeline {
                 script {
                     echo "🚀 Deploying to ${DEPLOY_ENV}..."
                     
+                    sendSlackNotification(
+                        "🚀 Deploying to ${DEPLOY_ENV}...",
+                        "Image: `${IMAGE_TAG}`",
+                        "#FFA500"
+                    )
+
                     // Production requires approval
                     if (DEPLOY_ENV == 'production') {
                         input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
@@ -228,10 +257,71 @@ pipeline {
         }
         success {
             echo '✅ Pipeline completed successfully!'
-            echo "🚀 Deployed ${IMAGE_TAG} to ${DEPLOY_ENV}"  // ← ADD ONLY THIS LINE
+            echo "🚀 Deployed ${IMAGE_TAG} to ${DEPLOY_ENV}"
+            sendSlackNotification(
+                "✅ *Deployment Successful!*",
+                """
+*Environment:* `${DEPLOY_ENV}`
+*Build:* #${BUILD_NUMBER}
+*Duration:* ${duration}
+*Image:* `${IMAGE_TAG}`
+*Author:* ${author}
+*Commit:* ${commitMsg}
+*Branch:* `${env.GIT_BRANCH}`
+                """,
+                "good"
+            )
         }
         failure {
             echo '❌ Pipeline failed!'
+            sendSlackNotification(
+                    "❌ *Deployment Failed!*",
+                    """
+*Environment:* `${DEPLOY_ENV}`
+*Build:* #${BUILD_NUMBER}
+*Duration:* ${duration}
+*Branch:* `${env.GIT_BRANCH}`
+*Console:* ${env.BUILD_URL}console
+                    """,
+                    "danger"
+                )
         }
     }
+}
+
+// Helper function to determine environment from branch
+def determineEnvironment() {
+    def branch = env.GIT_BRANCH ?: 'unknown'
+    
+    if (branch.contains('main')) {
+        return 'production'
+    } else if (branch.contains('staging')) {
+        return 'staging'
+    } else if (branch.contains('dev') || branch.contains('develop')) {
+        return 'dev'
+    } else {
+        return 'dev'  // Default to dev for feature branches
+    }
+}
+
+// Helper function to send Slack notifications
+def sendSlackNotification(String title, String message, String color) {
+    def payload = """
+    {
+        "attachments": [{
+            "color": "${color}",
+            "title": "${title}",
+            "text": "${message}",
+            "footer": "Jenkins CI/CD",
+            "footer_icon": "https://jenkins.io/images/logos/jenkins/jenkins.png",
+            "ts": ${System.currentTimeMillis() / 1000}
+        }]
+    }
+    """
+    
+    sh """
+        curl -X POST ${SLACK_WEBHOOK} \
+        -H 'Content-Type: application/json' \
+        -d '${payload}'
+    """
 }

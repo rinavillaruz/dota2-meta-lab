@@ -53,7 +53,7 @@ spec:
           securityContext:
             privileged: true
 
-        - name: fix-workspace-permissions  # ← Add this
+        - name: fix-workspace-permissions
           image: busybox
           command: ['sh', '-c', 'mkdir -p /var/jenkins_home/workspace && chmod -R 777 /var/jenkins_home/workspace']
           volumeMounts:
@@ -72,9 +72,6 @@ spec:
               echo "=========================================="
               echo "Installing Docker CLI"
               echo "=========================================="
-              
-              # Switch to root (jenkins user can't install packages)
-              # We'll install to a shared volume that main container can access
               
               # Create a script that main container will run
               cat > /var/jenkins_home/install-docker.sh <<'EOF'
@@ -142,8 +139,8 @@ spec:
           
           securityContext:
             privileged: true
-            runAsUser: 1000      # ← Jenkins user
-            runAsGroup: 1000     # ← Jenkins group
+            runAsUser: 1000
+            runAsGroup: 1000
 
           ports:
             - containerPort: 8080
@@ -155,15 +152,13 @@ spec:
           
           env:
             - name: JAVA_OPTS
-              value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.UpdateCenter.never=true"
+              value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.UpdateCenter.never=true -Dorg.jenkinsci.plugins.durabletask.BourneShellScript.LAUNCH_DIAGNOSTICS=true"
             - name: CASC_JENKINS_CONFIG
               value: /var/jenkins_home/casc_configs/jenkins.yaml
             - name: JENKINS_UC_DOWNLOAD
               value: "https://updates.jenkins.io/download"
             - name: TRY_UPGRADE_IF_NO_MARKER
               value: "false"
-            - name: JAVA_OPTS
-              value: "-Djenkins.install.runSetupWizard=false -Dhudson.model.UpdateCenter.never=true -Dorg.jenkinsci.plugins.durabletask.BourneShellScript.LAUNCH_DIAGNOSTICS=true"
 
           volumeMounts:
             - name: jenkins-data
@@ -181,6 +176,12 @@ spec:
             - name: dockerhub-credentials
               mountPath: /run/secrets/dockerhub
               readOnly: true
+            # ========================================
+            # ✅ ADD THIS: Slack webhook secret
+            # ========================================
+            - name: slack-webhook
+              mountPath: /run/secrets/slack
+              readOnly: true
           
           resources:
             requests:
@@ -194,7 +195,7 @@ spec:
             httpGet:
               path: /login
               port: 8080
-            initialDelaySeconds: 180  # Increased to allow Docker install
+            initialDelaySeconds: 180
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
@@ -203,7 +204,7 @@ spec:
             httpGet:
               path: /login
               port: 8080
-            initialDelaySeconds: 150  # Increased to allow Docker install
+            initialDelaySeconds: 150
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -228,3 +229,10 @@ spec:
         - name: dockerhub-credentials
           secret:
             secretName: dockerhub-credentials
+        # ========================================
+        # ✅ ADD THIS: Slack webhook secret volume
+        # ========================================
+        - name: slack-webhook
+          secret:
+            secretName: slack-webhook
+            optional: true

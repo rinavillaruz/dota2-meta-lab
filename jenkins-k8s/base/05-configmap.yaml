@@ -9,7 +9,7 @@ data:
   # Jenkins Configuration as Code
   jenkins.yaml: |
     jenkins:
-      systemMessage: "Jenkins for Dota2 Meta Lab CI/CD"
+      systemMessage: "Jenkins for Dota2 Meta Lab CI/CD - Auto-deploy from GitHub"
       numExecutors: 2
       mode: NORMAL
       
@@ -31,12 +31,12 @@ data:
           - name: "Default"
             home: "git"
 
-    # Credentials (will be added via Jenkins UI or JCasC)
+    # Credentials
     credentials:
       system:
         domainCredentials:
           - credentials:
-              # GitHub credentials from Kubernetes secret
+              # GitHub credentials
               - usernamePassword:
                   scope: GLOBAL
                   id: "github-credentials"
@@ -44,7 +44,7 @@ data:
                   password: ${readFile:/run/secrets/github/token}
                   description: "GitHub credentials from secret"
               
-              # Docker Hub credentials from Kubernetes secret
+              # Docker Hub credentials
               - usernamePassword:
                   scope: GLOBAL
                   id: "docker-hub-credentials"
@@ -52,93 +52,154 @@ data:
                   password: ${readFile:/run/secrets/dockerhub/token}
                   description: "Docker Hub credentials from secret"
 
-              # Docker registry URL as string credential
+              # Docker registry URL
               - string:
                   scope: GLOBAL
                   id: "docker-registry-url"
                   secret: "docker.io"
                   description: "Docker registry URL"
               
-              # Docker image prefix as string credential
+              # Docker image prefix
               - string:
                   scope: GLOBAL
                   id: "docker-image-prefix"
                   secret: "rinavillaruz"
                   description: "Docker image prefix/username"
+              
+              # Slack webhook URL
+              - string:
+                  scope: GLOBAL
+                  id: "slack-webhook-url"
+                  secret: ${readFile:/run/secrets/slack/url}
+                  description: "Slack webhook URL for notifications"
     
     # Jenkins URL configuration
     unclassified:
       location:
         url: http://localhost:30808/
+      
+      # Slack configuration
+      slackNotifier:
+        teamDomain: "your-workspace"
+        tokenCredentialId: "slack-webhook-url"
+        botUser: false
     
-    # Pre-configured pipeline job
+    # Jobs Configuration
     jobs:
+      # Original single-branch pipeline (for manual builds)
       - script: >
-          pipelineJob('dota2-meta-lab') {
-            definition {
-              cpsScm {
-                scm {
-                  git {
-                    remote {
-                      url('https://github.com/rinavillaruz/dota2-meta-lab.git')
-                      credentials('github-credentials')
-                    }
-                    branch('*/main')
+          multibranchPipelineJob('dota2-meta-lab-auto') {
+            branchSources {
+              github {
+                id('dota2-meta-lab')
+                repoOwner('rinavillaruz')
+                repository('dota2-meta-lab')
+                credentialsId('github-credentials')
+                traits {
+                  gitHubBranchDiscovery {
+                    strategyId(1)  // Discover all branches
                   }
                 }
-                scriptPath('ci/Jenkinsfile')
+              }
+            }
+            orphanedItemStrategy {
+              discardOldItems {
+                numToKeep(10)
               }
             }
             triggers {
-              pollSCM {
-                scmpoll_spec('H/5 * * * *')
+              periodicFolderTrigger {
+                interval('1m')
               }
             }
           }
-
-
+      
+      # Multibranch pipeline (for auto-deployment)
+      - script: >
+          multibranchPipelineJob('dota2-meta-lab-auto') {
+            description('Auto-deploy pipeline triggered by GitHub pushes')
+            branchSources {
+              github {
+                id('dota2-meta-lab')
+                repoOwner('rinavillaruz')
+                repository('dota2-meta-lab')
+                credentialsId('github-credentials')
+                traits {
+                  gitHubBranchDiscovery {
+                    strategyId(1)
+                  }
+                  headWildcardFilter {
+                    includes('main dev staging feature/*')
+                    excludes('')
+                  }
+                }
+              }
+            }
+            orphanedItemStrategy {
+              discardOldItems {
+                numToKeep(10)
+              }
+            }
+            triggers {
+              periodicFolderTrigger {
+                interval('1m')
+              }
+            }
+            factory {
+              workflowBranchProjectFactory {
+                scriptPath('ci/Jenkinsfile')
+              }
+            }
+          }
   
   # Plugins to auto-install
   plugins.txt: |
     # Core Authentication & Credentials
-    credentials
-    credentials-binding
-    plain-credentials
+    credentials:latest
+    credentials-binding:latest
+    plain-credentials:latest
     
     # Git & GitHub Integration
-    git
-    github
-    github-api
-    github-branch-source
-    scm-api
-    branch-api
+    git:latest
+    github:latest
+    github-api:latest
+    github-branch-source:latest
+    scm-api:latest
+    branch-api:latest
     
     # Pipeline Core Plugins
-    workflow-aggregator
-    workflow-api
-    workflow-step-api
-    workflow-cps
-    workflow-job
-    workflow-support
-    workflow-durable-task-step
-    pipeline-stage-view
-    pipeline-build-step
+    workflow-aggregator:latest
+    workflow-api:latest
+    workflow-step-api:latest
+    workflow-cps:latest
+    workflow-job:latest
+    workflow-support:latest
+    workflow-durable-task-step:latest
+    workflow-multibranch:latest
+    pipeline-stage-view:latest
+    pipeline-build-step:latest
     
     # Docker Integration
-    docker-workflow
-    docker-commons
+    docker-workflow:latest
+    docker-commons:latest
     
     # Configuration as Code (JCasC)
-    configuration-as-code
+    configuration-as-code:latest
     
     # Kubernetes Integration  
-    kubernetes
+    kubernetes:latest
     
     # Job DSL
-    job-dsl
+    job-dsl:latest
+    
+    # Slack Integration
+    slack:latest
     
     # Useful Utilities
-    timestamper
-    ws-cleanup
-    ansicolor
-    build-timeout
+    timestamper:latest
+    ws-cleanup:latest
+    ansicolor:latest
+    build-timeout:latest
+    
+    # HTTP Request (for Slack webhooks)
+    http_request:latest
