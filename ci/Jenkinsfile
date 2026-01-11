@@ -16,26 +16,38 @@ pipeline {
     }
 
     environment {
-        DOCKER_REGISTRY     =   credentials('docker-registry-url')
-        DOCKER_IMAGE_PREFIX =   credentials('docker-image-prefix')
-        GIT_COMMIT_SHORT    =   sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-        IMAGE_TAG           =   "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
-        DOCKER_BUILDKIT     =   "1"
-        
-        // Auto-detect environment from branch
-        DEPLOY_ENV          = determineEnvironment()
+        DOCKER_REGISTRY     = credentials('docker-registry-url')
+        DOCKER_IMAGE_PREFIX = credentials('docker-image-prefix')
+        GIT_COMMIT_SHORT    = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        IMAGE_TAG           = "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
+        DOCKER_BUILDKIT     = "1"
         
         // Slack webhook
         SLACK_WEBHOOK       = credentials('slack-webhook-url')
     }
     
     stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Auto-detect environment from branch
+                    env.DEPLOY_ENV = determineEnvironment()
+                    
+                    // Get git info for notifications
+                    env.GIT_AUTHOR = sh(script: "git log -1 --pretty=format:'%an'", returnStdout: true).trim()
+                    env.GIT_COMMIT_MSG = sh(script: "git log -1 --pretty=format:'%s'", returnStdout: true).trim()
+                    
+                    echo "🔧 Initialized: Environment=${env.DEPLOY_ENV}, Tag=${IMAGE_TAG}"
+                }
+            }
+        }
+
         stage('Notify Start') {
             steps {
                 script {
                     sendSlackNotification(
                         "🚀 *Build Started* #${BUILD_NUMBER}",
-                        "Branch: `${env.GIT_BRANCH}`\nEnvironment: `${DEPLOY_ENV}`\nCommit: `${GIT_COMMIT_SHORT}`",
+                        "Branch: `${env.GIT_BRANCH}`\nEnvironment: `${env.DEPLOY_ENV}`\nCommit: `${env.GIT_COMMIT_SHORT}`",
                         "#36a64f"
                     )
                 }
@@ -51,7 +63,9 @@ pipeline {
         
         stage('Test') {
             when {
-                expression { params.RUN_TESTS == true || env.GIT_BRANCH == 'origin/main' }
+                expression { 
+                    params.RUN_TESTS == true || env.GIT_BRANCH == 'origin/main' 
+                }
             }
 
             steps {
@@ -71,16 +85,10 @@ pipeline {
         }
         
         stage('Build Docker Images') {
-            environment {
-                // Define these locally to avoid interpolation warnings
-                REGISTRY = "${env.DOCKER_REGISTRY}"
-                PREFIX = "${env.DOCKER_IMAGE_PREFIX}"
-                TAG = "${env.IMAGE_TAG}"
-            }
             steps {
                 echo '🐳 Building multi-stage Docker images in parallel...'
                 script {
-                    echo "Building images with tag: ${TAG}"
+                    echo "Building images with tag: ${IMAGE_TAG}"
                     
                     sendSlackNotification(
                         "🐳 Building Docker Images...",
@@ -91,33 +99,33 @@ pipeline {
                     parallel(
                         'data-fetcher': {
                             echo '📦 Building Data Fetcher...'
-                            sh '''
+                            sh """
                                 docker build \
                                     --target data-fetcher \
                                     -f build/Dockerfile.dev \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-fetcher:${TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
                                     .
-                            '''
+                            """
                         },
                         'trainer': {
                             echo '🤖 Building ML Trainer...'
-                            sh '''
+                            sh """
                                 docker build \
                                     --target trainer \
                                     -f build/Dockerfile.dev \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-trainer:${TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
                                     .
-                            '''
+                            """
                         },
                         'api': {
                             echo '🌐 Building API Service...'
-                            sh '''
+                            sh """
                                 docker build \
                                     --target api \
                                     -f build/Dockerfile.dev \
-                                    -t ${REGISTRY}/${PREFIX}/dota2-api:${TAG} \
+                                    -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
                                     .
-                            '''
+                            """
                         }
                     )
                 }
@@ -129,14 +137,25 @@ pipeline {
                 echo '📤 Pushing images to Docker Hub...'
                 script {
                     // Determine if we should push :latest tag
-                    def pushLatest = (params.ENVIRONMENT == 'production')
+                    def pushLatest = (env.DEPLOY_ENV == 'production')
+                    
+                    // Tag with :latest if production
+                    if (pushLatest) {
+                        sh """
+                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
+                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
+                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
+                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
+                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
+                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
+                        """
+                    }
                     
                     parallel(
                         'push-fetcher': {
                             sh """
                                 docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
                             """
-                            // Only push :latest for production
                             if (pushLatest) {
                                 sh """
                                     docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
@@ -175,7 +194,14 @@ pipeline {
         }
 
         stage('Set Repository Privacy') {
+            when {
+                expression { 
+                    // Only run if credentials exist
+                    return env.DOCKERHUB_USERNAME && env.DOCKERHUB_TOKEN
+                }
+            }
             steps {
+                echo '🔒 Setting Docker Hub repository privacy...'
                 sh '''
                     # Function to make repo private
                     make_private() {
@@ -193,11 +219,14 @@ pipeline {
                         -X PATCH \
                         -d '{"is_private": true}' \
                         https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/
+                        
+                        echo "Set ${repo} to private"
                     }
                     
                     # Make specific repos private
                     make_private "dota2-fetcher"
-                    # make_private "dota2-trainer"  # Uncomment if needed
+                    make_private "dota2-trainer"
+                    make_private "dota2-api"
                 '''
             }
         }
@@ -205,16 +234,16 @@ pipeline {
         stage('Deploy to Environment') {
             steps {
                 script {
-                    echo "🚀 Deploying to ${DEPLOY_ENV}..."
+                    echo "🚀 Deploying to ${env.DEPLOY_ENV}..."
                     
                     sendSlackNotification(
-                        "🚀 Deploying to ${DEPLOY_ENV}...",
+                        "🚀 Deploying to ${env.DEPLOY_ENV}...",
                         "Image: `${IMAGE_TAG}`",
                         "#FFA500"
                     )
 
                     // Production requires approval
-                    if (DEPLOY_ENV == 'production') {
+                    if (env.DEPLOY_ENV == 'production') {
                         input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
                     }
                     
@@ -222,7 +251,7 @@ pipeline {
                     sh """
                         cd cli
                         chmod +x deploy-with-helm.sh
-                        ./deploy-with-helm.sh ${DEPLOY_ENV} ${IMAGE_TAG}
+                        ./deploy-with-helm.sh ${env.DEPLOY_ENV} ${IMAGE_TAG}
                     """
                 }
             }
@@ -234,11 +263,15 @@ pipeline {
                 sh """
                     kubectl get pods -n data
                     kubectl get svc -n data
+                    
+                    # Wait for pods to be ready
+                    kubectl wait --for=condition=ready pod \
+                        -l app=dota2-meta-lab \
+                        -n data \
+                        --timeout=300s || echo "Some pods not ready yet"
                 """
             }
         }
-
-        
     }
     
     post {
@@ -247,44 +280,54 @@ pipeline {
             script {
                 sh """
                     docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest || true
                     docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest || true
                     docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} || true
+                    
+                    # Clean up :latest tags if they exist
+                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest || true
+                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest || true
                     docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest || true
                 """
             }
         }
+        
         success {
-            echo '✅ Pipeline completed successfully!'
-            echo "🚀 Deployed ${IMAGE_TAG} to ${DEPLOY_ENV}"
-            sendSlackNotification(
-                "✅ *Deployment Successful!*",
-                """
-*Environment:* `${DEPLOY_ENV}`
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                
+                echo '✅ Pipeline completed successfully!'
+                echo "🚀 Deployed ${IMAGE_TAG} to ${env.DEPLOY_ENV}"
+                
+                sendSlackNotification(
+                    "✅ *Deployment Successful!*",
+                    """*Environment:* `${env.DEPLOY_ENV}`
 *Build:* #${BUILD_NUMBER}
 *Duration:* ${duration}
 *Image:* `${IMAGE_TAG}`
-*Author:* ${author}
-*Commit:* ${commitMsg}
-*Branch:* `${env.GIT_BRANCH}`
-                """,
-                "good"
-            )
+*Author:* ${env.GIT_AUTHOR}
+*Commit:* ${env.GIT_COMMIT_MSG}
+*Branch:* `${env.GIT_BRANCH}`""",
+                    "good"
+                )
+            }
         }
+        
         failure {
-            echo '❌ Pipeline failed!'
-            sendSlackNotification(
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                
+                echo '❌ Pipeline failed!'
+                
+                sendSlackNotification(
                     "❌ *Deployment Failed!*",
-                    """
-*Environment:* `${DEPLOY_ENV}`
+                    """*Environment:* `${env.DEPLOY_ENV}`
 *Build:* #${BUILD_NUMBER}
 *Duration:* ${duration}
 *Branch:* `${env.GIT_BRANCH}`
-*Console:* ${env.BUILD_URL}console
-                    """,
+*Console:* ${env.BUILD_URL}console""",
                     "danger"
                 )
+            }
         }
     }
 }
@@ -306,12 +349,16 @@ def determineEnvironment() {
 
 // Helper function to send Slack notifications
 def sendSlackNotification(String title, String message, String color) {
+    // Escape special characters in message
+    def escapedMessage = message.replaceAll('"', '\\\\"').replaceAll('\n', '\\\\n')
+    def escapedTitle = title.replaceAll('"', '\\\\"')
+    
     def payload = """
     {
         "attachments": [{
             "color": "${color}",
-            "title": "${title}",
-            "text": "${message}",
+            "title": "${escapedTitle}",
+            "text": "${escapedMessage}",
             "footer": "Jenkins CI/CD",
             "footer_icon": "https://jenkins.io/images/logos/jenkins/jenkins.png",
             "ts": ${System.currentTimeMillis() / 1000}
@@ -320,8 +367,8 @@ def sendSlackNotification(String title, String message, String color) {
     """
     
     sh """
-        curl -X POST ${SLACK_WEBHOOK} \
+        curl -X POST '${SLACK_WEBHOOK}' \
         -H 'Content-Type: application/json' \
-        -d '${payload}'
+        -d '${payload}' || echo "Slack notification failed"
     """
 }
