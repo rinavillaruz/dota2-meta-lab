@@ -1,41 +1,30 @@
 # Staging environment overrides
-environment: staging
+global:
+  environment: staging
 
-replicaCount: 2
-
+# Image settings
 image:
   tag: latest
   pullPolicy: IfNotPresent
 
-resources:
-  fetcher:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
-      memory: "1Gi"
-      cpu: "500m"
-  
-  trainer:
-    requests:
-      memory: "1Gi"
-      cpu: "500m"
-    limits:
-      memory: "2Gi"
-      cpu: "1000m"
-  
-  api:
-    requests:
-      memory: "256Mi"
-      cpu: "100m"
-    limits:
-      memory: "512Mi"
-      cpu: "250m"
+# Storage - use existing StorageClass
+storage:
+  createStorageClass: false
+  storageClassName: standard
+  mongodb:
+    size: 20Gi
+  redis:
+    size: 2Gi
+  models:
+    size: 50Gi
 
+# MongoDB - staging scale
 mongodb:
+  enabled: true
   replicas: 2
   persistence:
     enabled: true
+    storageClassName: standard
     size: 20Gi
   resources:
     requests:
@@ -45,8 +34,14 @@ mongodb:
       memory: "4Gi"
       cpu: "2"
 
+# Redis - staging scale
 redis:
+  enabled: true
   replicas: 2
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 2Gi
   resources:
     requests:
       memory: "256Mi"
@@ -55,8 +50,53 @@ redis:
       memory: "512Mi"
       cpu: "500m"
 
+# Data Fetcher
+dataFetcher:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# ML Trainer
+mlTrainer:
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 50Gi
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+# API
+api:
+  enabled: true
+  replicas: 3
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+
+# Autoscaling - enabled for staging
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 75
+
+# Resource quota - enabled for staging
+resourceQuota:
+  enabled: false

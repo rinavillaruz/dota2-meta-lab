@@ -1,29 +1,48 @@
-environment: dev
+# Development environment overrides
+global:
+  environment: dev
 
-replicaCount: 1
-
+# Image settings
 image:
   tag: latest
   pullPolicy: IfNotPresent
 
-resources:
-  fetcher:
+# Storage - use existing StorageClass
+storage:
+  createStorageClass: false
+  storageClassName: standard
+  mongodb:
+    size: 5Gi
+  redis:
+    size: 1Gi
+  models:
+    size: 10Gi
+
+# MongoDB - lightweight for dev
+mongodb:
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 5Gi
+  resources:
     requests:
       memory: "256Mi"
       cpu: "100m"
     limits:
       memory: "512Mi"
       cpu: "250m"
-  
-  trainer:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
-      memory: "1Gi"
-      cpu: "500m"
-  
-  api:
+
+# Redis - lightweight for dev
+redis:
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 1Gi
+  resources:
     requests:
       memory: "128Mi"
       cpu: "50m"
@@ -31,11 +50,50 @@ resources:
       memory: "256Mi"
       cpu: "100m"
 
-mongodb:
+# Data Fetcher
+dataFetcher:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# ML Trainer
+mlTrainer:
+  enabled: true
   replicas: 1
   persistence:
     enabled: true
+    storageClassName: standard
     size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
 
+# API
+api:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# Autoscaling - disabled for dev
 autoscaling:
+  enabled: false
+
+# Resource quota - disabled for dev
+resourceQuota:
   enabled: false

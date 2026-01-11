@@ -1,41 +1,30 @@
 # Production environment overrides
-environment: production
+global:
+  environment: production
 
-replicaCount: 3
-
+# Image settings
 image:
-  tag: latest  # Will be overridden by --set image.tag=X-Y during deployment
+  tag: latest
   pullPolicy: IfNotPresent
 
-resources:
-  fetcher:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-    limits:
-      memory: "1Gi"
-      cpu: "500m"
-  
-  trainer:
-    requests:
-      memory: "2Gi"
-      cpu: "1000m"
-    limits:
-      memory: "4Gi"
-      cpu: "2000m"
-  
-  api:
-    requests:
-      memory: "256Mi"
-      cpu: "100m"
-    limits:
-      memory: "512Mi"
-      cpu: "500m"
+# Storage - use existing StorageClass
+storage:
+  createStorageClass: false
+  storageClassName: standard
+  mongodb:
+    size: 50Gi
+  redis:
+    size: 5Gi
+  models:
+    size: 200Gi
 
+# MongoDB - production scale
 mongodb:
+  enabled: true
   replicas: 3
   persistence:
     enabled: true
+    storageClassName: standard
     size: 50Gi
   resources:
     requests:
@@ -45,8 +34,14 @@ mongodb:
       memory: "8Gi"
       cpu: "4"
 
+# Redis - production scale
 redis:
+  enabled: true
   replicas: 2
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 5Gi
   resources:
     requests:
       memory: "512Mi"
@@ -55,7 +50,37 @@ redis:
       memory: "1Gi"
       cpu: "1"
 
-mlApi:
+# Data Fetcher
+dataFetcher:
+  enabled: true
+  replicas: 3
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+# ML Trainer
+mlTrainer:
+  enabled: true
+  replicas: 2
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 200Gi
+  resources:
+    requests:
+      memory: "8Gi"
+      cpu: "4"
+    limits:
+      memory: "16Gi"
+      cpu: "8"
+
+# API
+api:
+  enabled: true
   replicas: 5
   resources:
     requests:
@@ -65,23 +90,17 @@ mlApi:
       memory: "2Gi"
       cpu: "2"
 
-mlTraining:
-  resources:
-    requests:
-      memory: "8Gi"
-      cpu: "4"
-    limits:
-      memory: "16Gi"
-      cpu: "8"
-  pvc:
-    size: 100Gi
-
-models:
-  pvc:
-    size: 200Gi
-
+# Autoscaling - enabled for production
 autoscaling:
   enabled: true
   minReplicas: 3
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
+
+# Resource quota - enabled for production
+resourceQuota:
+  enabled: true
+  hard:
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    persistentvolumeclaims: "20"

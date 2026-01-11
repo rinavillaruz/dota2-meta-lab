@@ -1,134 +1,174 @@
+# Default values for dota2-meta-lab
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
 # Global settings
 global:
-  namespace: data
-    
-# Storage configuration
+  environment: dev
+
+# Image settings
+image:
+  registry: docker.io
+  repository: rinavillaruz
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Service settings
+service:
+  type: ClusterIP
+  port: 80
+
+# Ingress settings
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: dota2-meta-lab.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Storage settings
 storage:
-  createStorageClass: true  # Set to false if storage class already exists
-  storageClassName: standard
-  isDefault: true
-  provisioner: rancher.io/local-path
-  volumeBindingMode: WaitForFirstConsumer
-  reclaimPolicy: Delete
-  allowVolumeExpansion: true
+  # Do NOT create StorageClass - use existing cluster StorageClass
+  createStorageClass: false
+  storageClassName: standard  # Use cluster's existing StorageClass
+  
+  # PVC sizes
+  mongodb:
+    size: 5Gi
+  redis:
+    size: 1Gi
+  models:
+    size: 10Gi
 
-# MongoDB configuration
+# MongoDB settings
 mongodb:
-  name: mongodb
-  namespace: data
-  replicas: 3
-  image:
-    repository: mongo
-    tag: "7.0"
-  containerPort: 27017
-  service:
-    port: 27017
-    targetPort: 27017
-  secret:
-    name: mongodb-secret
-  nodeSelector:
-    enabled: true
-    workloadType: data-processing
-  resources:
-    requests:
-      memory: "2Gi"
-      cpu: "1"
-  storage:
-    storageClassName: standard
-    size: 20Gi
-
-# Redis configuration
-redis:
-  name: redis
-  namespace: data
+  enabled: true
   replicas: 1
-  image:
-    repository: redis
-    tag: "7-alpine"
-  containerPort: 6379
-  service:
-    port: 6379
-  nodeSelector:
+  image: mongo:7.0
+  port: 27017
+  persistence:
     enabled: true
-    workloadType: data-processing
+    storageClassName: standard
+    size: 5Gi
   resources:
     requests:
       memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# Redis settings
+redis:
+  enabled: true
+  replicas: 1
+  image: redis:7.2-alpine
+  port: 6379
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 1Gi
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "100m"
+
+# Data Fetcher settings
+dataFetcher:
+  enabled: true
+  replicas: 1
+  image:
+    repository: dota2-fetcher
+    tag: latest
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# ML Trainer settings
+mlTrainer:
+  enabled: true
+  replicas: 1
+  image:
+    repository: dota2-trainer
+    tag: latest
+  persistence:
+    enabled: true
+    storageClassName: standard
+    size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
       cpu: "250m"
     limits:
-      memory: "512Mi"
-      cpu: "500m"
-  storage:
-    hostPath: /data/redis
-
-# ML API configuration
-mlApi:
-  name: ml-api
-  namespace: ml-pipeline
-  replicas: 3
-  image:
-    repository: nginx
-    tag: latest
-    pullPolicy: IfNotPresent
-  containerPort: 80
-  modelPath: "/models"
-  service:
-    port: 80
-    targetPort: 80
-    type: ClusterIP
-  nodeSelector:
-    enabled: true
-    workloadType: api-services
-  resources:
-    requests:
-      memory: "512Mi"
-      cpu: "500m"
-    limits:
       memory: "1Gi"
-      cpu: "1"
-  livenessProbe:
-    path: /
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    failureThreshold: 3
-  readinessProbe:
-    path: /
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    failureThreshold: 3
+      cpu: "500m"
 
-# ML Training Job configuration
-mlTraining:
-  name: model-training
-  namespace: ml-pipeline
-  backoffLimit: 3
+# API settings
+api:
+  enabled: true
+  replicas: 1
   image:
-    repository: tensorflow/tensorflow
+    repository: dota2-api
     tag: latest
-  command:
-    - python
-    - /app/train_model.py
-  nodeSelector:
-    enabled: true
-    workloadType: ml-training
+  port: 8000
   resources:
     requests:
-      memory: "4Gi"
-      cpu: "2"
+      memory: "256Mi"
+      cpu: "100m"
     limits:
-      memory: "8Gi"
-      cpu: "4"
-  restartPolicy: OnFailure
-  pvc:
-    name: ml-training-data
-    accessModes:
-      - ReadWriteOnce
-    size: 50Gi
+      memory: "512Mi"
+      cpu: "250m"
 
-# Models storage configuration
-models:
-  pvc:
-    name: model-artifacts
-    accessModes:
-      - ReadWriteOnce
-    size: 100Gi
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# Resource quotas
+resourceQuota:
+  enabled: false
+  hard:
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    persistentvolumeclaims: "10"
+
+# Network policies
+networkPolicy:
+  enabled: false
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext: {}
+
+# Security context
+securityContext: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
