@@ -1,13 +1,19 @@
+{{- if .Values.mongodb.enabled }}
 apiVersion: v1 
 kind: Service
 metadata:
-  name: {{ .Values.mongodb.name }}
-  namespace: {{ .Values.mongodb.namespace }}
+  name: mongodb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
 spec:
+  type: ClusterIP
   clusterIP: None
   selector:
-    app: {{ .Values.mongodb.name }}
+    app: mongodb
   ports:
-    - port: {{ .Values.mongodb.service.port }}
-      targetPort: {{ .Values.mongodb.service.targetPort }}
+    - port: {{ .Values.mongodb.port }}
+      targetPort: {{ .Values.mongodb.port }}
+      protocol: TCP
       name: mongodb
+{{- end }}

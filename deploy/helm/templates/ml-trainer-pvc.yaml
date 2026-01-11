@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ .Values.mlTrainer.name }}-training-data
+  name: {{ .Values.mlTrainer.name }}-models
   namespace: {{ .Values.global.namespace }}
   labels:
     app: {{ .Values.mlTrainer.name }}

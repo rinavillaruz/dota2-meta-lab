@@ -1,57 +1,28 @@
+{{- if .Values.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.mlApi.name }}
-  namespace: {{ .Values.mlApi.namespace }}
+  name: {{ .Values.api.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.api.name }}
 spec:
-  replicas: {{ .Values.mlApi.replicas }}
+  replicas: {{ .Values.api.replicas }}
   selector:
     matchLabels:
-      app: {{ .Values.mlApi.name }}
+      app: {{ .Values.api.name }}
   template:
     metadata:
       labels:
-        app: {{ .Values.mlApi.name }}
+        app: {{ .Values.api.name }}
     spec:
-      {{- if .Values.mlApi.nodeSelector.enabled }}
-      nodeSelector:
-        workload-type: {{ .Values.mlApi.nodeSelector.workloadType }}
-      {{- end }}
       containers:
         - name: api
-          image: {{ .Values.mlApi.image.repository }}:{{ .Values.mlApi.image.tag }}
-          imagePullPolicy: {{ .Values.mlApi.image.pullPolicy }}
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}/{{ .Values.api.name }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.mlApi.containerPort }}
-          env:
-            - name: MODEL_PATH
-              value: {{ .Values.mlApi.modelPath }}
+            - containerPort: {{ .Values.api.port }}
+              name: http
           resources:
-            requests:
-              memory: {{ .Values.mlApi.resources.requests.memory }}
-              cpu: {{ .Values.mlApi.resources.requests.cpu }}
-            limits:
-              memory: {{ .Values.mlApi.resources.limits.memory }}
-              cpu: {{ .Values.mlApi.resources.limits.cpu }}
-          livenessProbe:
-            httpGet:
-              path: {{ .Values.mlApi.livenessProbe.path }}
-              port: {{ .Values.mlApi.containerPort }}
-            initialDelaySeconds: {{ .Values.mlApi.livenessProbe.initialDelaySeconds }}
-            periodSeconds: {{ .Values.mlApi.livenessProbe.periodSeconds }}
-            failureThreshold: {{ .Values.mlApi.livenessProbe.failureThreshold }}
-          readinessProbe:
-            httpGet:
-              path: {{ .Values.mlApi.readinessProbe.path }}
-              port: {{ .Values.mlApi.containerPort }}
-            initialDelaySeconds: {{ .Values.mlApi.readinessProbe.initialDelaySeconds }}
-            periodSeconds: {{ .Values.mlApi.readinessProbe.periodSeconds }}
-            failureThreshold: {{ .Values.mlApi.readinessProbe.failureThreshold }}
-          volumeMounts:
-            - name: model-artifacts
-              mountPath: /models
-              readOnly: true
-      volumes:
-        - name: model-artifacts
-          persistentVolumeClaim:
-            claimName: {{ .Values.models.pvc.name }}
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}

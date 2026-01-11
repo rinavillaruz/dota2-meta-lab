@@ -1,10 +1,13 @@
 # Default values for dota2-meta-lab
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
 
 # Global settings
 global:
-  environment: dev
+  namespace: data
+
+# Storage settings - DO NOT CREATE StorageClass
+storage:
+  createStorageClass: false  # Use existing cluster StorageClass
+  storageClassName: standard
 
 # Image settings
 image:
@@ -13,38 +16,7 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# Service settings
-service:
-  type: ClusterIP
-  port: 80
-
-# Ingress settings
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-  hosts:
-    - host: dota2-meta-lab.local
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-
-# Storage settings
-storage:
-  # Do NOT create StorageClass - use existing cluster StorageClass
-  createStorageClass: false
-  storageClassName: standard  # Use cluster's existing StorageClass
-  
-  # PVC sizes
-  mongodb:
-    size: 5Gi
-  redis:
-    size: 1Gi
-  models:
-    size: 10Gi
-
-# MongoDB settings
+# MongoDB
 mongodb:
   enabled: true
   replicas: 1
@@ -52,7 +24,6 @@ mongodb:
   port: 27017
   persistence:
     enabled: true
-    storageClassName: standard
     size: 5Gi
   resources:
     requests:
@@ -61,8 +32,10 @@ mongodb:
     limits:
       memory: "512Mi"
       cpu: "250m"
+  secret:
+    name: mongodb-secret
 
-# Redis settings
+# Redis
 redis:
   enabled: true
   replicas: 1
@@ -70,7 +43,6 @@ redis:
   port: 6379
   persistence:
     enabled: true
-    storageClassName: standard
     size: 1Gi
   resources:
     requests:
@@ -80,13 +52,11 @@ redis:
       memory: "256Mi"
       cpu: "100m"
 
-# Data Fetcher settings
+# Data Fetcher
 dataFetcher:
   enabled: true
   replicas: 1
-  image:
-    repository: dota2-fetcher
-    tag: latest
+  name: dota2-fetcher
   resources:
     requests:
       memory: "256Mi"
@@ -95,16 +65,13 @@ dataFetcher:
       memory: "512Mi"
       cpu: "250m"
 
-# ML Trainer settings
+# ML Trainer
 mlTrainer:
   enabled: true
   replicas: 1
-  image:
-    repository: dota2-trainer
-    tag: latest
+  name: dota2-trainer
   persistence:
     enabled: true
-    storageClassName: standard
     size: 10Gi
   resources:
     requests:
@@ -114,13 +81,11 @@ mlTrainer:
       memory: "1Gi"
       cpu: "500m"
 
-# API settings
+# API Service
 api:
   enabled: true
   replicas: 1
-  image:
-    repository: dota2-api
-    tag: latest
+  name: dota2-api
   port: 8000
   resources:
     requests:
@@ -137,38 +102,15 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
-# Resource quotas
-resourceQuota:
-  enabled: false
-  hard:
-    requests.cpu: "10"
-    requests.memory: "20Gi"
-    persistentvolumeclaims: "10"
-
-# Network policies
-networkPolicy:
-  enabled: false
-
-# Service account
+# Service Account
 serviceAccount:
   create: true
-  annotations: {}
   name: ""
 
-# Pod annotations
+# Pod settings
 podAnnotations: {}
-
-# Pod security context
 podSecurityContext: {}
-
-# Security context
 securityContext: {}
-
-# Node selector
 nodeSelector: {}
-
-# Tolerations
 tolerations: []
-
-# Affinity
 affinity: {}

@@ -1,41 +1,38 @@
+{{- if .Values.mlTrainer.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Values.mlTraining.name }}
-  namespace: {{ .Values.mlTraining.namespace }}
+  name: {{ .Values.mlTrainer.name }}-{{ now | date "20060102-150405" }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.mlTrainer.name }}
 spec:
-  backoffLimit: {{ .Values.mlTraining.backoffLimit }}
+  backoffLimit: 3
   template:
     spec:
-      {{- if .Values.mlTraining.nodeSelector.enabled }}
-      nodeSelector:
-        workload-type: {{ .Values.mlTraining.nodeSelector.workloadType }}
-      {{- end }}
+      restartPolicy: OnFailure
       containers:
         - name: trainer
-          image: {{ .Values.mlTraining.image.repository }}:{{ .Values.mlTraining.image.tag }}
-          command: 
-            {{- range .Values.mlTraining.command }}
-            - {{ . }}
-            {{- end }}
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}/{{ .Values.mlTrainer.name }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "/app/scripts/train_model.py"]
           resources:
-            requests:
-              memory: {{ .Values.mlTraining.resources.requests.memory }}
-              cpu: {{ .Values.mlTraining.resources.requests.cpu }}
-            limits:
-              memory: {{ .Values.mlTraining.resources.limits.memory }}
-              cpu: {{ .Values.mlTraining.resources.limits.cpu }}
+            {{- toYaml .Values.mlTrainer.resources | nindent 12 }}
+          {{- if .Values.mlTrainer.persistence.enabled }}
           volumeMounts:
             - name: training-data
               mountPath: /data/training
               readOnly: true
-            - name: model-output
+            - name: models
               mountPath: /models
+          {{- end }}
+      {{- if .Values.mlTrainer.persistence.enabled }}
       volumes:
         - name: training-data
           persistentVolumeClaim:
-            claimName: {{ .Values.mlTraining.pvc.name }}
-        - name: model-output
+            claimName: {{ .Values.mlTrainer.name }}-training-data
+        - name: models
           persistentVolumeClaim:
-            claimName: {{ .Values.models.pvc.name }}
-      restartPolicy: {{ .Values.mlTraining.restartPolicy }}
+            claimName: {{ .Values.mlTrainer.name }}-models
+      {{- end }}
+{{- end }}

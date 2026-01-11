@@ -1,30 +1,24 @@
 # Staging environment overrides
-global:
-  environment: staging
 
-# Image settings
+global:
+  namespace: data
+
+# Storage - use existing
+storage:
+  createStorageClass: false
+  storageClassName: standard
+
+# Image
 image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# Storage - use existing StorageClass
-storage:
-  createStorageClass: false
-  storageClassName: standard
-  mongodb:
-    size: 20Gi
-  redis:
-    size: 2Gi
-  models:
-    size: 50Gi
-
-# MongoDB - staging scale
+# MongoDB - medium scale
 mongodb:
   enabled: true
   replicas: 2
   persistence:
     enabled: true
-    storageClassName: standard
     size: 20Gi
   resources:
     requests:
@@ -34,13 +28,12 @@ mongodb:
       memory: "4Gi"
       cpu: "2"
 
-# Redis - staging scale
+# Redis - medium scale
 redis:
   enabled: true
   replicas: 2
   persistence:
     enabled: true
-    storageClassName: standard
     size: 2Gi
   resources:
     requests:
@@ -68,7 +61,6 @@ mlTrainer:
   replicas: 1
   persistence:
     enabled: true
-    storageClassName: standard
     size: 50Gi
   resources:
     requests:
@@ -90,13 +82,9 @@ api:
       memory: "1Gi"
       cpu: "1"
 
-# Autoscaling - enabled for staging
+# Autoscaling enabled
 autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 75
-
-# Resource quota - enabled for staging
-resourceQuota:
-  enabled: false

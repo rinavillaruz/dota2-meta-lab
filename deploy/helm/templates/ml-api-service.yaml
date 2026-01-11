@@ -1,14 +1,18 @@
+{{- if .Values.api.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.mlApi.name }}
-  namespace: {{ .Values.mlApi.namespace }}
+  name: {{ .Values.api.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.api.name }}
 spec:
+  type: ClusterIP
   selector:
-    app: {{ .Values.mlApi.name }}
+    app: {{ .Values.api.name }}
   ports:
     - protocol: TCP
-      port: {{ .Values.mlApi.service.port }}
-      targetPort: {{ .Values.mlApi.service.targetPort }}
+      port: {{ .Values.api.port }}
+      targetPort: {{ .Values.api.port }}
       name: http
-  type: {{ .Values.mlApi.service.type }}
+{{- end }}

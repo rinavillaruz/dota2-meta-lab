@@ -1,38 +1,44 @@
+{{- if .Values.redis.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: {{ .Values.redis.name }}
-  namespace: {{ .Values.redis.namespace }}
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: redis
 spec:
+  serviceName: redis
   replicas: {{ .Values.redis.replicas }}
   selector:
     matchLabels:
-      app: {{ .Values.redis.name }}
+      app: redis
   template:
     metadata:
       labels:
-        app: {{ .Values.redis.name }}
+        app: redis
     spec:
-      {{- if .Values.redis.nodeSelector.enabled }}
-      nodeSelector:
-        workload-type: {{ .Values.redis.nodeSelector.workloadType }}
-      {{- end }}
       containers:
-        - name: redis
-          image: {{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}
-          ports:
-            - containerPort: {{ .Values.redis.containerPort }}
-          volumeMounts:
-            - mountPath: /data
-              name: redis-data
-          resources:
-            requests:
-              memory: {{ .Values.redis.resources.requests.memory }}
-              cpu: {{ .Values.redis.resources.requests.cpu }}
-            limits:
-              memory: {{ .Values.redis.resources.limits.memory }}
-              cpu: {{ .Values.redis.resources.limits.cpu }}
-      volumes:
-        - name: redis-data
-          hostPath:
-            path: {{ .Values.redis.storage.hostPath }}
+      - name: redis
+        image: {{ .Values.redis.image }}
+        ports:
+        - containerPort: {{ .Values.redis.port }}
+          name: redis
+        resources:
+          {{- toYaml .Values.redis.resources | nindent 10 }}
+        {{- if .Values.redis.persistence.enabled }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        {{- end }}
+  {{- if .Values.redis.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.redis.persistence.size }}
+  {{- end }}
+{{- end }}

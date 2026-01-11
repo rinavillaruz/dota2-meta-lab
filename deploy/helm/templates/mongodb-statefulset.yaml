@@ -1,52 +1,55 @@
+{{- if .Values.mongodb.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Values.mongodb.name }} 
-  namespace: {{ .Values.mongodb.namespace }}
+  name: mongodb
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: mongodb
 spec:
-  serviceName: {{ .Values.mongodb.name }} 
+  serviceName: mongodb
   replicas: {{ .Values.mongodb.replicas }}
   selector:
     matchLabels:
-      app: {{ .Values.mongodb.name }}
+      app: mongodb
   template:
     metadata:
       labels:
-        app: {{ .Values.mongodb.name }}
+        app: mongodb
     spec:
-      {{- if .Values.mongodb.nodeSelector.enabled }}
-      nodeSelector:
-        workload-type: data-processing
-      {{- end }}
       containers:
-        - name: mongodb
-          image: {{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}
-          ports:
-            - containerPort: {{ .Values.mongodb.containerPort }}
-          env:
-            - name: MONGO_INITDB_ROOT_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  key: username 
-                  name: {{ .Values.mongodb.secret.name }}
-            - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  key: password 
-                  name: {{ .Values.mongodb.secret.name }}
-          volumeMounts:
-            - mountPath: /data/db
-              name: data
-          resources:
-            requests:
-              memory: {{ .Values.mongodb.resources.requests.memory }}
-              cpu: {{ .Values.mongodb.resources.requests.cpu }}
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        storageClassName: {{ .Values.mongodb.storage.storageClassName }}
+      - name: mongodb
+        image: {{ .Values.mongodb.image }}
+        ports:
+        - containerPort: {{ .Values.mongodb.port }}
+          name: mongodb
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mongodb.secret.name }}
+              key: username
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.mongodb.secret.name }}
+              key: password
         resources:
-          requests:
-            storage: {{ .Values.mongodb.storage.size }}
+          {{- toYaml .Values.mongodb.resources | nindent 10 }}
+        {{- if .Values.mongodb.persistence.enabled }}
+        volumeMounts:
+        - name: data
+          mountPath: /data/db
+        {{- end }}
+  {{- if .Values.mongodb.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.storage.storageClassName }}
+      resources:
+        requests:
+          storage: {{ .Values.mongodb.persistence.size }}
+  {{- end }}
+{{- end }}

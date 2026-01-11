@@ -1,22 +1,17 @@
 # Production environment overrides
+
 global:
-  environment: production
+  namespace: data
 
-# Image settings
-image:
-  tag: latest
-  pullPolicy: IfNotPresent
-
-# Storage - use existing StorageClass
+# Storage - use existing
 storage:
   createStorageClass: false
   storageClassName: standard
-  mongodb:
-    size: 50Gi
-  redis:
-    size: 5Gi
-  models:
-    size: 200Gi
+
+# Image
+image:
+  tag: latest
+  pullPolicy: IfNotPresent
 
 # MongoDB - production scale
 mongodb:
@@ -24,7 +19,6 @@ mongodb:
   replicas: 3
   persistence:
     enabled: true
-    storageClassName: standard
     size: 50Gi
   resources:
     requests:
@@ -40,7 +34,6 @@ redis:
   replicas: 2
   persistence:
     enabled: true
-    storageClassName: standard
     size: 5Gi
   resources:
     requests:
@@ -68,7 +61,6 @@ mlTrainer:
   replicas: 2
   persistence:
     enabled: true
-    storageClassName: standard
     size: 200Gi
   resources:
     requests:
@@ -90,17 +82,9 @@ api:
       memory: "2Gi"
       cpu: "2"
 
-# Autoscaling - enabled for production
+# Autoscaling enabled
 autoscaling:
   enabled: true
   minReplicas: 3
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
-
-# Resource quota - enabled for production
-resourceQuota:
-  enabled: true
-  hard:
-    requests.cpu: "20"
-    requests.memory: "40Gi"
-    persistentvolumeclaims: "20"
