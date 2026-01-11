@@ -7,7 +7,6 @@ pipeline {
             choices: ['dev', 'staging', 'production'],
             description: 'Which environment to deploy to?'
         )
-
         booleanParam(
             name: 'RUN_TESTS',
             defaultValue: false,
@@ -16,28 +15,31 @@ pipeline {
     }
 
     environment {
-        DOCKER_REGISTRY     = credentials('docker-registry-url')
-        DOCKER_IMAGE_PREFIX = credentials('docker-image-prefix')
+        // Read from environment variables set by Kubernetes
+        DOCKER_REGISTRY     = "${env.DOCKER_REGISTRY}"
+        DOCKER_IMAGE_PREFIX = "${env.DOCKER_IMAGE_PREFIX}"
         GIT_COMMIT_SHORT    = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         IMAGE_TAG           = "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
         DOCKER_BUILDKIT     = "1"
-        
-        // Slack webhook
-        SLACK_WEBHOOK       = credentials('slack-webhook-url')
+        SLACK_WEBHOOK       = "${env.SLACK_WEBHOOK_URL}"
     }
     
     stages {
         stage('Initialize') {
             steps {
                 script {
-                    // Auto-detect environment from branch
                     env.DEPLOY_ENV = determineEnvironment()
-                    
-                    // Get git info for notifications
                     env.GIT_AUTHOR = sh(script: "git log -1 --pretty=format:'%an'", returnStdout: true).trim()
                     env.GIT_COMMIT_MSG = sh(script: "git log -1 --pretty=format:'%s'", returnStdout: true).trim()
                     
-                    echo "🔧 Initialized: Environment=${env.DEPLOY_ENV}, Tag=${IMAGE_TAG}"
+                    echo "================================"
+                    echo "🔧 Build Configuration"
+                    echo "================================"
+                    echo "Environment: ${env.DEPLOY_ENV}"
+                    echo "Image Tag: ${IMAGE_TAG}"
+                    echo "Branch: ${env.GIT_BRANCH}"
+                    echo "Author: ${env.GIT_AUTHOR}"
+                    echo "================================"
                 }
             }
         }
@@ -47,7 +49,7 @@ pipeline {
                 script {
                     sendSlackNotification(
                         "🚀 *Build Started* #${BUILD_NUMBER}",
-                        "Branch: `${env.GIT_BRANCH}`\nEnvironment: `${env.DEPLOY_ENV}`\nCommit: `${env.GIT_COMMIT_SHORT}`",
+                        "Branch: `${env.GIT_BRANCH}`\nEnvironment: `${env.DEPLOY_ENV}`\nCommit: `${GIT_COMMIT_SHORT}`\nAuthor: ${env.GIT_AUTHOR}",
                         "#36a64f"
                     )
                 }
@@ -67,17 +69,16 @@ pipeline {
                     params.RUN_TESTS == true || env.GIT_BRANCH == 'origin/main' 
                 }
             }
-
             steps {
-                echo '🧪 Running tests in Python container...'
+                echo '🧪 Running tests...'
                 sh '''
                     docker run --rm \
                         -v $WORKSPACE:/app \
                         -w /app \
                         python:3.11-slim \
                         bash -c "
-                            pip install -r build/requirements.txt || true
-                            python -m pytest tests/ || true  
+                            pip install -q -r build/requirements.txt
+                            python -m pytest tests/ -q || true
                             flake8 src/ || true
                         " || echo "Tests completed"
                 '''
@@ -88,8 +89,6 @@ pipeline {
             steps {
                 echo '🐳 Building multi-stage Docker images in parallel...'
                 script {
-                    echo "Building images with tag: ${IMAGE_TAG}"
-                    
                     sendSlackNotification(
                         "🐳 Building Docker Images...",
                         "Tag: `${IMAGE_TAG}`",
@@ -136,7 +135,6 @@ pipeline {
             steps {
                 echo '📤 Pushing images to Docker Hub...'
                 script {
-                    // Determine if we should push :latest tag
                     def pushLatest = (env.DEPLOY_ENV == 'production')
                     
                     // Tag with :latest if production
@@ -184,50 +182,8 @@ pipeline {
                         }
                     )
                     
-                    if (pushLatest) {
-                        echo '📦 Pushed :latest tags for production'
-                    } else {
-                        echo '⏭️  Skipped :latest tags (not production)'
-                    }
+                    echo pushLatest ? '📦 Pushed versioned + :latest tags' : '📦 Pushed versioned tags only'
                 }
-            }
-        }
-
-        stage('Set Repository Privacy') {
-            when {
-                expression { 
-                    // Only run if credentials exist
-                    return env.DOCKERHUB_USERNAME && env.DOCKERHUB_TOKEN
-                }
-            }
-            steps {
-                echo '🔒 Setting Docker Hub repository privacy...'
-                sh '''
-                    # Function to make repo private
-                    make_private() {
-                        local repo=$1
-                        
-                        # Get token
-                        TOKEN=$(curl -s -H "Content-Type: application/json" \
-                        -X POST \
-                        -d '{"username": "'${DOCKERHUB_USERNAME}'", "password": "'${DOCKERHUB_TOKEN}'"}' \
-                        https://hub.docker.com/v2/users/login/ | jq -r .token)
-                        
-                        # Make private
-                        curl -s -H "Authorization: JWT ${TOKEN}" \
-                        -H "Content-Type: application/json" \
-                        -X PATCH \
-                        -d '{"is_private": true}' \
-                        https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/
-                        
-                        echo "Set ${repo} to private"
-                    }
-                    
-                    # Make specific repos private
-                    make_private "dota2-fetcher"
-                    make_private "dota2-trainer"
-                    make_private "dota2-api"
-                '''
             }
         }
         
@@ -242,12 +198,12 @@ pipeline {
                         "#FFA500"
                     )
 
-                    // Production requires approval
                     if (env.DEPLOY_ENV == 'production') {
-                        input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
+                        timeout(time: 30, unit: 'MINUTES') {
+                            input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
+                        }
                     }
                     
-                    // Use your existing deploy-with-helm.sh script
                     sh """
                         cd cli
                         chmod +x deploy-with-helm.sh
@@ -263,12 +219,6 @@ pipeline {
                 sh """
                     kubectl get pods -n data
                     kubectl get svc -n data
-                    
-                    # Wait for pods to be ready
-                    kubectl wait --for=condition=ready pod \
-                        -l app=dota2-meta-lab \
-                        -n data \
-                        --timeout=300s || echo "Some pods not ready yet"
                 """
             }
         }
@@ -277,18 +227,11 @@ pipeline {
     post {
         always {
             echo '🧹 Cleaning up...'
-            script {
-                sh """
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} || true
-                    
-                    # Clean up :latest tags if they exist
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest || true
-                    docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest || true
-                """
-            }
+            sh """
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} || true
+            """
         }
         
         success {
@@ -296,7 +239,6 @@ pipeline {
                 def duration = currentBuild.durationString.replace(' and counting', '')
                 
                 echo '✅ Pipeline completed successfully!'
-                echo "🚀 Deployed ${IMAGE_TAG} to ${env.DEPLOY_ENV}"
                 
                 sendSlackNotification(
                     "✅ *Deployment Successful!*",
@@ -343,32 +285,27 @@ def determineEnvironment() {
     } else if (branch.contains('dev') || branch.contains('develop')) {
         return 'dev'
     } else {
-        return 'dev'  // Default to dev for feature branches
+        return 'dev'
     }
 }
 
 // Helper function to send Slack notifications
 def sendSlackNotification(String title, String message, String color) {
-    // Escape special characters in message
     def escapedMessage = message.replaceAll('"', '\\\\"').replaceAll('\n', '\\\\n')
     def escapedTitle = title.replaceAll('"', '\\\\"')
-    
-    def payload = """
-    {
-        "attachments": [{
-            "color": "${color}",
-            "title": "${escapedTitle}",
-            "text": "${escapedMessage}",
-            "footer": "Jenkins CI/CD",
-            "footer_icon": "https://jenkins.io/images/logos/jenkins/jenkins.png",
-            "ts": ${System.currentTimeMillis() / 1000}
-        }]
-    }
-    """
     
     sh """
         curl -X POST '${SLACK_WEBHOOK}' \
         -H 'Content-Type: application/json' \
-        -d '${payload}' || echo "Slack notification failed"
+        -d '{
+            "attachments": [{
+                "color": "${color}",
+                "title": "${escapedTitle}",
+                "text": "${escapedMessage}",
+                "footer": "Jenkins CI/CD",
+                "footer_icon": "https://jenkins.io/images/logos/jenkins/jenkins.png",
+                "ts": $(date +%s)
+            }]
+        }' || echo "⚠️  Slack notification failed"
     """
 }
