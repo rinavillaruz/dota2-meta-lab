@@ -1,60 +1,41 @@
-storage:
-  createStorageClass: false
+environment: dev
 
 replicaCount: 1
+
 image:
   tag: latest
-resources:
-  requests:
-    memory: "512Mi"
-    
-mongodb:
-  replicas: 3
-  resources:
-    requests:
-      memory: "512Mi"
-      cpu: "250m"
-  storage:
-    size: 5Gi
-  nodeSelector:
-    enabled: false
+  pullPolicy: IfNotPresent
 
-redis:
-  resources:
+resources:
+  fetcher:
     requests:
-      memory: "128Mi"
+      memory: "256Mi"
       cpu: "100m"
     limits:
-      memory: "256Mi"
-      cpu: "250m"
-  nodeSelector:
-    enabled: false
-
-mlApi:
-  replicas: 1
-  resources:
-    requests:
-      memory: "256Mi"
-      cpu: "250m"
-    limits:
       memory: "512Mi"
-      cpu: "500m"
-  nodeSelector:
-    enabled: false
-
-mlTraining:
-  resources:
+      cpu: "250m"
+  
+  trainer:
     requests:
-      memory: "2Gi"
-      cpu: "1"
+      memory: "512Mi"
+      cpu: "250m"
     limits:
-      memory: "4Gi"
-      cpu: "2"
-  pvc:
-    size: 10Gi
-  nodeSelector:
-    enabled: false
+      memory: "1Gi"
+      cpu: "500m"
+  
+  api:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "100m"
 
-models:
-  pvc:
-    size: 20Gi
+mongodb:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+
+autoscaling:
+  enabled: false

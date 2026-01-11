@@ -1,50 +1,62 @@
+# Staging environment overrides
+environment: staging
+
 replicaCount: 2
+
 image:
-  tag: ${IMAGE_TAG}
+  tag: latest
+  pullPolicy: IfNotPresent
+
 resources:
-  requests:
-    memory: "1Gi"
-    
+  fetcher:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  trainer:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  api:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
 mongodb:
-  replicas: 3
+  replicas: 2
+  persistence:
+    enabled: true
+    size: 20Gi
   resources:
     requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
       memory: "4Gi"
       cpu: "2"
-  storage:
-    size: 50Gi
 
 redis:
   replicas: 2
   resources:
     requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
       memory: "512Mi"
       cpu: "500m"
-    limits:
-      memory: "1Gi"
-      cpu: "1"
 
-mlApi:
-  replicas: 5
-  resources:
-    requests:
-      memory: "1Gi"
-      cpu: "1"
-    limits:
-      memory: "2Gi"
-      cpu: "2"
-
-mlTraining:
-  resources:
-    requests:
-      memory: "8Gi"
-      cpu: "4"
-    limits:
-      memory: "16Gi"
-      cpu: "8"
-  pvc:
-    size: 100Gi
-
-models:
-  pvc:
-    size: 200Gi
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
