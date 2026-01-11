@@ -52,102 +52,52 @@ data:
                   password: ${readFile:/run/secrets/dockerhub/token}
                   description: "Docker Hub credentials from secret"
 
-              # Docker registry URL
+              # Docker registry URL (from env var, not secret file)
               - string:
                   scope: GLOBAL
                   id: "docker-registry-url"
                   secret: "docker.io"
                   description: "Docker registry URL"
               
-              # Docker image prefix
+              # Docker image prefix (from env var, not secret file)
               - string:
                   scope: GLOBAL
                   id: "docker-image-prefix"
                   secret: "rinavillaruz"
                   description: "Docker image prefix/username"
-              
-              # Slack webhook URL
-              - string:
-                  scope: GLOBAL
-                  id: "slack-webhook-url"
-                  secret: ${readFile:/run/secrets/slack/url}
-                  description: "Slack webhook URL for notifications"
     
     # Jenkins URL configuration
     unclassified:
       location:
         url: http://localhost:30808/
-      
-      # Slack configuration
-      slackNotifier:
-        teamDomain: "your-workspace"
-        tokenCredentialId: "slack-webhook-url"
-        botUser: false
     
     # Jobs Configuration
     jobs:
-      # Original single-branch pipeline (for manual builds)
+      # Single pipeline job for manual builds
       - script: >
-          multibranchPipelineJob('dota2-meta-lab-auto') {
-            branchSources {
-              github {
-                id('dota2-meta-lab')
-                repoOwner('rinavillaruz')
-                repository('dota2-meta-lab')
-                credentialsId('github-credentials')
-                traits {
-                  gitHubBranchDiscovery {
-                    strategyId(1)  // Discover all branches
+          pipelineJob('dota2-meta-lab') {
+            description('Manual deployment pipeline with parameters')
+            definition {
+              cpsScm {
+                scm {
+                  git {
+                    remote {
+                      url('https://github.com/rinavillaruz/dota2-meta-lab.git')
+                      credentials('github-credentials')
+                    }
+                    branch('*/main')
                   }
                 }
-              }
-            }
-            orphanedItemStrategy {
-              discardOldItems {
-                numToKeep(10)
-              }
-            }
-            triggers {
-              periodicFolderTrigger {
-                interval('1m')
-              }
-            }
-          }
-      
-      # Multibranch pipeline (for auto-deployment)
-      - script: >
-          multibranchPipelineJob('dota2-meta-lab-auto') {
-            description('Auto-deploy pipeline triggered by GitHub pushes')
-            branchSources {
-              github {
-                id('dota2-meta-lab')
-                repoOwner('rinavillaruz')
-                repository('dota2-meta-lab')
-                credentialsId('github-credentials')
-                traits {
-                  gitHubBranchDiscovery {
-                    strategyId(1)
-                  }
-                  headWildcardFilter {
-                    includes('main dev staging feature/*')
-                    excludes('')
-                  }
-                }
-              }
-            }
-            orphanedItemStrategy {
-              discardOldItems {
-                numToKeep(10)
-              }
-            }
-            triggers {
-              periodicFolderTrigger {
-                interval('1m')
-              }
-            }
-            factory {
-              workflowBranchProjectFactory {
                 scriptPath('ci/Jenkinsfile')
+              }
+            }
+            parameters {
+              choiceParam('ENVIRONMENT', ['dev', 'staging', 'production'], 'Which environment to deploy to?')
+              booleanParam('RUN_TESTS', false, 'Run tests? (Adds ~3s)')
+            }
+            triggers {
+              pollSCM {
+                scmpoll_spec('H/5 * * * *')
               }
             }
           }

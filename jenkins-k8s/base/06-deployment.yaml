@@ -149,7 +149,7 @@ spec:
             - name: TRY_UPGRADE_IF_NO_MARKER
               value: "false"
             
-            # Docker credentials
+            # Docker credentials (from Kubernetes secrets)
             - name: DOCKER_REGISTRY
               valueFrom:
                 secretKeyRef:
@@ -161,7 +161,7 @@ spec:
                   name: jenkins-docker-creds
                   key: image-prefix
             
-            # Slack webhook
+            # Slack webhook (from Kubernetes secret)
             - name: SLACK_WEBHOOK_URL
               valueFrom:
                 secretKeyRef:
