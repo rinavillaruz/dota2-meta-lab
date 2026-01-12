@@ -1,60 +1,90 @@
-storage:
-  createStorageClass: false
+# Development environment overrides
 
-replicaCount: 1
+global:
+  namespace: data
+
+# Storage - use existing
+storage:
+  createStorageClass: false  # Set to false - create manually
+  storageClassName: standard
+
+# Image
 image:
   tag: latest
-resources:
-  requests:
-    memory: "512Mi"
-    
+  pullPolicy: IfNotPresent
+
+# MongoDB - minimal for dev
 mongodb:
-  replicas: 3
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 5Gi
   resources:
     requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
       memory: "512Mi"
       cpu: "250m"
-  storage:
-    size: 5Gi
-  nodeSelector:
-    enabled: false
 
+# Redis - minimal for dev
 redis:
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 1Gi
   resources:
     requests:
       memory: "128Mi"
-      cpu: "100m"
+      cpu: "50m"
     limits:
       memory: "256Mi"
-      cpu: "250m"
-  nodeSelector:
-    enabled: false
+      cpu: "100m"
 
-mlApi:
+# Data Fetcher
+dataFetcher:
+  enabled: false
+  name: dota2-fetcher
   replicas: 1
   resources:
     requests:
       memory: "256Mi"
-      cpu: "250m"
+      cpu: "100m"
     limits:
       memory: "512Mi"
-      cpu: "500m"
-  nodeSelector:
-    enabled: false
+      cpu: "250m"
 
-mlTraining:
+# ML Trainer
+mlTrainer:
+  enabled: true  # ← Enable it now
+  replicas: 1
+  name: dota2-trainer  # ← ADDED
+  persistence:
+    enabled: true
+    size: 10Gi
   resources:
     requests:
-      memory: "2Gi"
-      cpu: "1"
+      memory: "512Mi"
+      cpu: "250m"
     limits:
-      memory: "4Gi"
-      cpu: "2"
-  pvc:
-    size: 10Gi
-  nodeSelector:
-    enabled: false
+      memory: "1Gi"
+      cpu: "500m"
 
-models:
-  pvc:
-    size: 20Gi
+# API
+api:
+  enabled: true
+  replicas: 1
+  name: dota2-api
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "250m"
+
+# No autoscaling in dev
+autoscaling:
+  enabled: false

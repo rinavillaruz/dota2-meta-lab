@@ -1,14 +1,16 @@
+{{- if and .Values.mlTrainer.enabled .Values.mlTrainer.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ .Values.mlTraining.pvc.name }}
-  namespace: {{ .Values.mlTraining.namespace }}
+  name: {{ .Values.mlTrainer.name }}-training-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: {{ .Values.mlTrainer.name }}
 spec:
   accessModes:
-    {{- range .Values.mlTraining.pvc.accessModes }}
-    - {{ . }}
-    {{- end }}
+    - ReadWriteOnce
   storageClassName: {{ .Values.storage.storageClassName }}
   resources:
     requests:
-      storage: {{ .Values.mlTraining.pvc.size }}
+      storage: {{ .Values.mlTrainer.persistence.size }}
+{{- end }}

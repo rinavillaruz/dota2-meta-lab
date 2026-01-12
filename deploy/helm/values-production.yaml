@@ -1,51 +1,52 @@
-# Staging environment overrides
+# Production environment overrides
 
 global:
   namespace: data
 
+# Storage - use existing
 storage:
-  createStorageClass: false
+  createStorageClass: false  # Assume it exists in production
   storageClassName: standard
 
+# Image
 image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# MongoDB - staging scale
+# MongoDB - production scale
 mongodb:
   enabled: true
-  replicas: 2
+  replicas: 3
   persistence:
     enabled: true
-    size: 20Gi
+    size: 50Gi
   resources:
     requests:
-      memory: "2Gi"
-      cpu: "1"
-    limits:
       memory: "4Gi"
       cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
 
-# Redis - staging scale
+# Redis - production scale
 redis:
   enabled: true
   replicas: 2
   persistence:
     enabled: true
-    size: 2Gi
+    size: 5Gi
   resources:
     requests:
-      memory: "256Mi"
-      cpu: "250m"
-    limits:
       memory: "512Mi"
       cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
 
 # Data Fetcher
 dataFetcher:
   enabled: true
-  name: dota2-fetcher
-  replicas: 2
+  replicas: 3
   resources:
     requests:
       memory: "512Mi"
@@ -57,35 +58,33 @@ dataFetcher:
 # ML Trainer
 mlTrainer:
   enabled: true
-  replicas: 1
-  name: dota2-trainer
+  replicas: 2
   persistence:
     enabled: true
-    size: 50Gi
+    size: 200Gi
   resources:
     requests:
-      memory: "2Gi"
-      cpu: "1"
+      memory: "8Gi"
+      cpu: "4"
     limits:
-      memory: "4Gi"
-      cpu: "2"
+      memory: "16Gi"
+      cpu: "8"
 
 # API
 api:
   enabled: true
-  replicas: 3
-  name: dota2-api
+  replicas: 5
   resources:
     requests:
-      memory: "512Mi"
-      cpu: "500m"
-    limits:
       memory: "1Gi"
       cpu: "1"
+    limits:
+      memory: "2Gi"
+      cpu: "2"
 
 # Autoscaling enabled
 autoscaling:
   enabled: true
-  minReplicas: 2
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 75
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
