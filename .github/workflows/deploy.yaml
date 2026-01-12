@@ -29,7 +29,6 @@ jobs:
           fi
           
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "Deploying branch: $BRANCH to environment: ${{ steps.env.outputs.environment }}"
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -40,22 +39,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
-      - name: Generate image tag
-        id: meta
-        run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          IMAGE_TAG="${{ github.run_number }}-${SHORT_SHA}"
-          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "Generated image tag: ${IMAGE_TAG}"
-      
       - name: Build and push data-fetcher
         uses: docker/build-push-action@v5
         with:
-          context: ./services/data-fetcher
-          file: ./services/data-fetcher/Dockerfile
+          context: .
+          file: ./build/Dockerfile.dev
+          target: data-fetcher
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.meta.outputs.image_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ github.run_number }}-${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -63,111 +55,86 @@ jobs:
       - name: Build and push trainer
         uses: docker/build-push-action@v5
         with:
-          context: ./services/ml-trainer
-          file: ./services/ml-trainer/Dockerfile
+          context: .
+          file: ./build/Dockerfile.dev
+          target: trainer
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.meta.outputs.image_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ github.run_number }}-${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: Build and push API
+      - name: Build and push api
         uses: docker/build-push-action@v5
         with:
-          context: ./services/api
-          file: ./services/api/Dockerfile
+          context: .
+          file: ./build/Dockerfile.dev
+          target: api
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.meta.outputs.image_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ github.run_number }}-${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
-      
-      - name: Setup Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: 'latest'
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
       
       - name: Setup kubeconfig
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config current-context
       
       - name: Deploy with Helm
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
-          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
-          MONGODB_USERNAME: ${{ secrets.MONGODB_USERNAME }}
-          MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}
+          IMAGE_TAG: ${{ github.run_number }}-${{ github.sha }}
         run: |
-          echo "Deploying to $ENVIRONMENT with image tag $IMAGE_TAG"
+          # Install Helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           
-          # Make script executable
-          chmod +x cli/deploy-with-helm.sh
-          
-          # Deploy using your script
-          ./cli/deploy-with-helm.sh $ENVIRONMENT $IMAGE_TAG
-      
-      - name: Verify deployment
-        run: |
-          echo "Checking deployment status..."
-          kubectl get pods -n data
-          kubectl get svc -n data
-          helm list -n data
+          # Deploy
+          helm upgrade --install dota2-meta-lab-$ENVIRONMENT ./deploy/helm \
+            -f ./deploy/helm/values-$ENVIRONMENT.yaml \
+            --set image.tag=$IMAGE_TAG \
+            -n data \
+            --create-namespace
       
       - name: Send Slack notification
         if: always()
         run: |
-          if [ "${{ job.status }}" = "success" ]; then
-            TEXT="✅ Deployment successful to ${{ steps.env.outputs.environment }}"
+          STATUS="${{ job.status }}"
+          ENV="${{ steps.env.outputs.environment }}"
+          BRANCH="${{ steps.env.outputs.branch }}"
+          TAG="${{ github.run_number }}-${{ github.sha }}"
+          
+          if [ "$STATUS" = "success" ]; then
             COLOR="good"
+            EMOJI="✅"
+            TEXT="Deployment Successful"
           else
-            TEXT="❌ Deployment failed to ${{ steps.env.outputs.environment }}"
             COLOR="danger"
+            EMOJI="❌"
+            TEXT="Deployment Failed"
           fi
           
           curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
             -H 'Content-Type: application/json' \
-            -d @- <<EOF
-          {
-            "attachments": [{
-              "color": "$COLOR",
-              "title": "$TEXT",
-              "fields": [
-                {
-                  "title": "Environment",
-                  "value": "${{ steps.env.outputs.environment }}",
-                  "short": true
-                },
-                {
-                  "title": "Branch",
-                  "value": "${{ steps.env.outputs.branch }}",
-                  "short": true
-                },
-                {
-                  "title": "Image Tag",
-                  "value": "${{ steps.meta.outputs.image_tag }}",
-                  "short": true
-                },
-                {
-                  "title": "Author",
-                  "value": "${{ github.actor }}",
-                  "short": true
-                },
-                {
-                  "title": "Commit",
-                  "value": "${{ github.event.head_commit.message }}",
-                  "short": false
-                }
-              ],
-              "footer": "GitHub Actions",
-              "ts": $(date +%s)
-            }]
-          }
-          EOF
+            -d "{
+              \"attachments\": [{
+                \"color\": \"$COLOR\",
+                \"title\": \"$EMOJI $TEXT\",
+                \"fields\": [
+                  {\"title\": \"Environment\", \"value\": \"$ENV\", \"short\": true},
+                  {\"title\": \"Branch\", \"value\": \"$BRANCH\", \"short\": true},
+                  {\"title\": \"Image Tag\", \"value\": \"$TAG\", \"short\": true},
+                  {\"title\": \"Author\", \"value\": \"${{ github.actor }}\", \"short\": true}
+                ],
+                \"footer\": \"GitHub Actions\",
+                \"ts\": $(date +%s)
+              }]
+            }"
