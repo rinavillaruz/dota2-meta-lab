@@ -247,8 +247,7 @@ if helm upgrade --install dota2-meta-lab . \
   --create-namespace \
   --values values-${ENVIRONMENT}.yaml \
   --set image.tag=${IMAGE_TAG} \
-  --timeout 10m \
-  --wait; then
+  --timeout 15m; then
     print_green "✅ Helm deployment successful"
 else
     print_red "❌ Helm deployment failed"
@@ -256,7 +255,7 @@ else
     print_yellow "Troubleshooting tips:"
     echo "  1. Check if values-${ENVIRONMENT}.yaml is valid"
     echo "  2. Run: helm lint . -f values-${ENVIRONMENT}.yaml"
-    echo "  3. Check logs: kubectl logs -n data --selector='app.kubernetes.io/instance=dota2-meta-lab'"
+    echo "  3. Check logs: kubectl logs -n data -l app=dota2-api"
     exit 1
 fi
 echo ""
