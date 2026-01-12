@@ -5,7 +5,7 @@ global:
 
 # Storage - use existing
 storage:
-  createStorageClass: false
+  createStorageClass: false  # Assume it exists in staging
   storageClassName: standard
 
 # Image

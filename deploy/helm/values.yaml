@@ -6,7 +6,7 @@ global:
 
 # Storage settings - DO NOT CREATE StorageClass
 storage:
-  createStorageClass: false  # Use existing cluster StorageClass
+  createStorageClass: true   # Change to true to create StorageClass
   storageClassName: standard
 
 # Image settings

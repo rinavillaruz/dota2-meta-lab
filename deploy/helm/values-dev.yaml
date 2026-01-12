@@ -5,7 +5,7 @@ global:
 
 # Storage - use existing
 storage:
-  createStorageClass: false
+  createStorageClass: true   # Create for dev
   storageClassName: standard
 
 # Image
@@ -76,10 +76,10 @@ api:
   replicas: 1
   resources:
     requests:
-      memory: "256Mi"
+      memory: "512Mi"
       cpu: "100m"
     limits:
-      memory: "512Mi"
+      memory: "1Gi"
       cpu: "250m"
 
 # No autoscaling in dev
