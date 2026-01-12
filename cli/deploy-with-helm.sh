@@ -247,7 +247,8 @@ if helm upgrade --install dota2-meta-lab . \
   --create-namespace \
   --values values-${ENVIRONMENT}.yaml \
   --set image.tag=${IMAGE_TAG} \
-  --timeout 15m; then
+  --timeout 10m \
+  --wait; then
     print_green "✅ Helm deployment successful"
 else
     print_red "❌ Helm deployment failed"
