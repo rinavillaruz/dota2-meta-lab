@@ -30,9 +30,9 @@ spec:
       volumes:
         - name: training-data
           persistentVolumeClaim:
-            claimName: {{ .Values.mlTrainer.name }}-training-data
+            claimName: {{ .Values.mlTrainer.name }}-training-data  # ← Use template variable
         - name: models
           persistentVolumeClaim:
-            claimName: {{ .Values.mlTrainer.name }}-models
+            claimName: {{ .Values.mlTrainer.name }}-models  # ← Use template variable
       {{- end }}
 {{- end }}

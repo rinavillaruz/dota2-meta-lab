@@ -259,6 +259,23 @@ else
     echo "  3. Check logs: kubectl logs -n data -l app=dota2-api"
     exit 1
 fi
+
+# helm upgrade --install dota2-meta-lab . \
+#   --values values-${ENVIRONMENT}.yaml \
+#   --set image.tag=${IMAGE_TAG} \
+#   --timeout 15m
+
+# # Then manually verify in your script
+# echo "⏳ Waiting for pods to be ready..."
+# kubectl wait --for=condition=ready pod -l app=mongodb -n data --timeout=5m
+# kubectl wait --for=condition=ready pod -l app=redis -n data --timeout=5m
+# kubectl wait --for=condition=ready pod -l app=dota2-api -n data --timeout=5m
+
+# # Check if any pods failed
+# if kubectl get pods -n data | grep -E 'CrashLoopBackOff|Error|ImagePullBackOff'; then
+#   echo "❌ Some pods failed!"
+#   exit 1
+# fi
 echo ""
 
 # ========================================

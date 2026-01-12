@@ -3,17 +3,15 @@
 global:
   namespace: data
 
-# Storage - use existing
 storage:
-  createStorageClass: false  # Assume it exists in staging
+  createStorageClass: false
   storageClassName: standard
 
-# Image
 image:
   tag: latest
   pullPolicy: IfNotPresent
 
-# MongoDB - medium scale
+# MongoDB - staging scale
 mongodb:
   enabled: true
   replicas: 2
@@ -28,7 +26,7 @@ mongodb:
       memory: "4Gi"
       cpu: "2"
 
-# Redis - medium scale
+# Redis - staging scale
 redis:
   enabled: true
   replicas: 2
@@ -46,6 +44,7 @@ redis:
 # Data Fetcher
 dataFetcher:
   enabled: true
+  name: dota2-fetcher
   replicas: 2
   resources:
     requests:
@@ -59,6 +58,7 @@ dataFetcher:
 mlTrainer:
   enabled: true
   replicas: 1
+  name: dota2-trainer
   persistence:
     enabled: true
     size: 50Gi
@@ -74,6 +74,7 @@ mlTrainer:
 api:
   enabled: true
   replicas: 3
+  name: dota2-api
   resources:
     requests:
       memory: "512Mi"

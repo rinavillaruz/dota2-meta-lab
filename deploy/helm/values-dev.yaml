@@ -5,7 +5,7 @@ global:
 
 # Storage - use existing
 storage:
-  createStorageClass: true   # Create for dev
+  createStorageClass: false  # Set to false - create manually
   storageClassName: standard
 
 # Image
@@ -45,7 +45,8 @@ redis:
 
 # Data Fetcher
 dataFetcher:
-  enabled: true
+  enabled: false
+  name: dota2-fetcher
   replicas: 1
   resources:
     requests:
@@ -57,8 +58,9 @@ dataFetcher:
 
 # ML Trainer
 mlTrainer:
-  enabled: true
+  enabled: true  # ← Enable it now
   replicas: 1
+  name: dota2-trainer  # ← ADDED
   persistence:
     enabled: true
     size: 10Gi
@@ -74,6 +76,7 @@ mlTrainer:
 api:
   enabled: true
   replicas: 1
+  name: dota2-api
   resources:
     requests:
       memory: "512Mi"
