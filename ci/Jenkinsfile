@@ -15,13 +15,17 @@ pipeline {
     }
 
     environment {
-        // Read from environment variables set by Kubernetes
-        DOCKER_REGISTRY     = "${env.DOCKER_REGISTRY}"
-        DOCKER_IMAGE_PREFIX = "${env.DOCKER_IMAGE_PREFIX}"
+        // Read Docker credentials from mounted secret files
+        DOCKER_REGISTRY     = "docker.io"
+        DOCKER_IMAGE_PREFIX = readFile('/run/secrets/dockerhub/username').trim()
+        
+        // Git metadata
         GIT_COMMIT_SHORT    = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
         IMAGE_TAG           = "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
         DOCKER_BUILDKIT     = "1"
-        SLACK_WEBHOOK       = "${env.SLACK_WEBHOOK_URL}"
+        
+        // Slack webhook from mounted secret
+        SLACK_WEBHOOK       = readFile('/run/secrets/slack/webhook-url').trim()
     }
     
     stages {
@@ -90,6 +94,22 @@ pipeline {
                             flake8 src/ || echo 'Linting skipped'
                         " || echo "Tests completed"
                 '''
+            }
+        }
+        
+        stage('Docker Login') {
+            steps {
+                script {
+                    echo '🔐 Logging into Docker Hub...'
+                    // Read credentials from mounted secret files
+                    def dockerUsername = readFile('/run/secrets/dockerhub/username').trim()
+                    def dockerToken = readFile('/run/secrets/dockerhub/token').trim()
+                    
+                    sh """
+                        echo '${dockerToken}' | docker login ${DOCKER_REGISTRY} -u '${dockerUsername}' --password-stdin
+                    """
+                    echo '✅ Docker login successful'
+                }
             }
         }
         
@@ -243,6 +263,7 @@ pipeline {
         always {
             echo '🧹 Cleaning up...'
             sh """
+                docker logout ${DOCKER_REGISTRY} || true
                 docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} || true
                 docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} || true
                 docker rmi ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} || true

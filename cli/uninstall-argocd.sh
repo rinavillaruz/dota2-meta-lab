@@ -5,6 +5,34 @@ set -e  # Exit on any error
 echo "🧹 Uninstalling ArgoCD from Kubernetes..."
 
 # -----------------------------------------------------------------------------
+# Configuration - Load from .env file
+# -----------------------------------------------------------------------------
+
+# Determine directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load .env file - check in order: custom location, project root, home directory
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+elif [ -f "$HOME/.env" ]; then
+    source "$HOME/.env"
+fi
+
+# ArgoCD Configuration (with defaults)
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+
+# Debug mode
+if [ "${DEBUG:-false}" = "true" ]; then
+    echo "🐛 Debug - Configuration:"
+    echo "  Project Root: $PROJECT_ROOT"
+    echo "  ARGOCD_NAMESPACE: $ARGOCD_NAMESPACE"
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
 # 🎨 Colors for output
 # -----------------------------------------------------------------------------
 GREEN='\033[0;32m'
@@ -14,10 +42,8 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # -----------------------------------------------------------------------------
-# 🧭 Define directories (same as install script)
+# 🧭 Define directories
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR="$PROJECT_ROOT/tmp"
 VALUES_FILE="$TMP_DIR/argocd-values.yaml"
 
@@ -25,7 +51,7 @@ VALUES_FILE="$TMP_DIR/argocd-values.yaml"
 # Step 1: Check if ArgoCD namespace exists
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🔍 Step 1: Checking if ArgoCD is installed...${NC}"
-if ! kubectl get namespace argocd &>/dev/null; then
+if ! kubectl get namespace "$ARGOCD_NAMESPACE" &>/dev/null; then
     echo -e "${YELLOW}⚠️  ArgoCD namespace not found. Nothing to uninstall.${NC}"
     exit 0
 fi
@@ -36,11 +62,11 @@ echo -e "${GREEN}✅ ArgoCD installation found.${NC}\n"
 # Step 2: Check for existing ArgoCD applications
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}📋 Step 2: Checking for managed applications...${NC}"
-APPS_COUNT=$(kubectl get applications -n argocd --no-headers 2>/dev/null | wc -l | xargs)
+APPS_COUNT=$(kubectl get applications -n "$ARGOCD_NAMESPACE" --no-headers 2>/dev/null | wc -l | xargs)
 
 if [ "$APPS_COUNT" -gt 0 ]; then
     echo -e "${YELLOW}⚠️  Found ${APPS_COUNT} application(s) managed by ArgoCD:${NC}"
-    kubectl get applications -n argocd --no-headers 2>/dev/null | awk '{print "   - " $1}'
+    kubectl get applications -n "$ARGOCD_NAMESPACE" --no-headers 2>/dev/null | awk '{print "   - " $1}'
     echo ""
     echo -e "${YELLOW}Note: Deleting applications will NOT delete your actual workloads.${NC}"
     echo -e "${YELLOW}Your pods, services, etc. will continue running in their namespaces.${NC}\n"
@@ -49,7 +75,7 @@ if [ "$APPS_COUNT" -gt 0 ]; then
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         echo "Deleting ArgoCD applications..."
-        kubectl delete applications --all -n argocd --timeout=60s 2>/dev/null || true
+        kubectl delete applications --all -n "$ARGOCD_NAMESPACE" --timeout=60s 2>/dev/null || true
         echo -e "${GREEN}✅ Applications deleted.${NC}\n"
     else
         echo -e "${YELLOW}⚠️  Skipping application deletion. They may become orphaned resources.${NC}\n"
@@ -73,8 +99,8 @@ fi
 # Step 4: Uninstall Helm release
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🧩 Step 4: Uninstalling Helm release 'argocd'...${NC}"
-if helm status argocd -n argocd &>/dev/null; then
-    helm uninstall argocd -n argocd
+if helm status argocd -n "$ARGOCD_NAMESPACE" &>/dev/null; then
+    helm uninstall argocd -n "$ARGOCD_NAMESPACE"
     echo -e "${GREEN}✅ Helm release removed.${NC}\n"
 else
     echo -e "${YELLOW}⚠️  Helm release not found. Skipping.${NC}\n"
@@ -126,34 +152,34 @@ echo -e "${BLUE}🗑️  Step 7: Deleting ArgoCD namespace...${NC}"
 echo "This may take 30-60 seconds..."
 
 # Delete namespace with timeout
-kubectl delete namespace argocd --timeout=120s 2>/dev/null || {
+kubectl delete namespace "$ARGOCD_NAMESPACE" --timeout=120s 2>/dev/null || {
     echo -e "${YELLOW}⚠️  Namespace deletion taking longer than expected...${NC}"
     echo "Checking for stuck resources..."
     
     # Force remove finalizers (try both methods)
     if command -v jq &> /dev/null; then
         echo "Using jq to remove finalizers..."
-        kubectl get namespace argocd -o json | \
+        kubectl get namespace "$ARGOCD_NAMESPACE" -o json | \
             jq '.spec.finalizers = []' | \
-            kubectl replace --raw "/api/v1/namespaces/argocd/finalize" -f - 2>/dev/null || true
+            kubectl replace --raw "/api/v1/namespaces/$ARGOCD_NAMESPACE/finalize" -f - 2>/dev/null || true
     else
         echo "Using kubectl patch to remove finalizers..."
-        kubectl patch namespace argocd -p '{"spec":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+        kubectl patch namespace "$ARGOCD_NAMESPACE" -p '{"spec":{"finalizers":[]}}' --type=merge 2>/dev/null || true
     fi
     
     echo "Waiting for namespace deletion..."
-    kubectl wait --for=delete namespace/argocd --timeout=60s || {
+    kubectl wait --for=delete namespace/"$ARGOCD_NAMESPACE" --timeout=60s || {
         echo -e "${RED}❌ Namespace deletion failed.${NC}"
         echo ""
         echo "Manual cleanup commands:"
         echo "  # Check stuck resources:"
-        echo "  kubectl get all -n argocd"
+        echo "  kubectl get all -n $ARGOCD_NAMESPACE"
         echo ""
         echo "  # Force remove finalizers:"
-        echo "  kubectl patch namespace argocd -p '{\"spec\":{\"finalizers\":[]}}' --type=merge"
+        echo "  kubectl patch namespace $ARGOCD_NAMESPACE -p '{\"spec\":{\"finalizers\":[]}}' --type=merge"
         echo ""
         echo "  # Delete namespace:"
-        echo "  kubectl delete namespace argocd --grace-period=0 --force"
+        echo "  kubectl delete namespace $ARGOCD_NAMESPACE --grace-period=0 --force"
         exit 1
     }
 }
@@ -192,7 +218,7 @@ echo ""
 echo -e "${BLUE}🔍 Step 10: Verifying uninstall...${NC}"
 
 # Check namespace
-if kubectl get namespace argocd &>/dev/null; then
+if kubectl get namespace "$ARGOCD_NAMESPACE" &>/dev/null; then
     echo -e "${RED}❌ ArgoCD namespace still exists!${NC}"
     exit 1
 else
@@ -200,7 +226,7 @@ else
 fi
 
 # Check Helm release
-if helm status argocd -n argocd &>/dev/null; then
+if helm status argocd -n "$ARGOCD_NAMESPACE" &>/dev/null; then
     echo -e "${RED}❌ Helm release still exists!${NC}"
     exit 1
 else
@@ -251,7 +277,7 @@ echo ""
 echo "=========================================="
 echo "📝 To reinstall ArgoCD:"
 echo "=========================================="
-echo "  ./install-argocd.sh"
+echo "  ./cli/install-argocd.sh"
 echo ""
 echo "To restore application management:"
 echo "  kubectl apply -f $PROJECT_ROOT/argocd-apps/"

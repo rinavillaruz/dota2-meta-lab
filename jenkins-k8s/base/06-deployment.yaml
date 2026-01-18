@@ -149,37 +149,12 @@ spec:
             - name: TRY_UPGRADE_IF_NO_MARKER
               value: "false"
             
-            # Docker credentials (from Kubernetes secrets)
-            - name: DOCKER_REGISTRY
-              valueFrom:
-                secretKeyRef:
-                  name: jenkins-docker-creds
-                  key: registry-url
-            - name: DOCKER_IMAGE_PREFIX
-              valueFrom:
-                secretKeyRef:
-                  name: jenkins-docker-creds
-                  key: image-prefix
-            
-            # Slack webhook (from Kubernetes secret)
+            # Slack webhook (optional - only if you use Slack)
             - name: SLACK_WEBHOOK_URL
               valueFrom:
                 secretKeyRef:
                   name: jenkins-slack-webhook
                   key: webhook-url
-            
-            # Docker Hub authentication (optional)
-            - name: DOCKERHUB_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: jenkins-dockerhub-auth
-                  key: username
-                  optional: true
-            - name: DOCKERHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: jenkins-dockerhub-auth
-                  key: password
                   optional: true
 
           volumeMounts:
@@ -197,6 +172,9 @@ spec:
               readOnly: true
             - name: dockerhub-credentials
               mountPath: /run/secrets/dockerhub
+              readOnly: true
+            - name: slack-webhook
+              mountPath: /run/secrets/slack
               readOnly: true
           
           resources:
@@ -242,6 +220,11 @@ spec:
         - name: github-credentials
           secret:
             secretName: github-credentials
+            optional: true
         - name: dockerhub-credentials
           secret:
             secretName: dockerhub-credentials
+        - name: slack-webhook
+          secret:
+            secretName: jenkins-slack-webhook
+            optional: true

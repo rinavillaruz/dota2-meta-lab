@@ -2,6 +2,43 @@
 
 set -e  # Exit on any error
 
+echo ""
+echo "🚀 Deploying Dota2 Meta Lab Platform with Helm..."
+echo ""
+
+# -----------------------------------------------------------------------------
+# Configuration - Load from .env file
+# -----------------------------------------------------------------------------
+
+# Determine directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load .env file - check in order: custom location, project root, home directory
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+elif [ -f "$HOME/.env" ]; then
+    source "$HOME/.env"
+fi
+
+# MongoDB Configuration (needed for secrets)
+MONGODB_USERNAME="${MONGODB_USERNAME:-admin}"
+MONGODB_PASSWORD="${MONGODB_PASSWORD:-}"
+
+# Cluster Configuration
+CLUSTER_NAME="${CLUSTER_NAME:-dota2-dev}"
+
+# Debug mode
+if [ "${DEBUG:-false}" = "true" ]; then
+    echo "🐛 Debug - Configuration:"
+    echo "  Project Root: $PROJECT_ROOT"
+    echo "  MONGODB_USERNAME: $MONGODB_USERNAME"
+    echo "  CLUSTER_NAME: $CLUSTER_NAME"
+    echo ""
+fi
+
 # ========================================
 # 🎨 Colors for output
 # ========================================
@@ -15,13 +52,6 @@ print_red() { echo -e "${RED}$1${NC}"; }
 print_green() { echo -e "${GREEN}$1${NC}"; }
 print_blue() { echo -e "${BLUE}$1${NC}"; }
 print_yellow() { echo -e "${YELLOW}$1${NC}"; }
-
-# ========================================
-# 📋 Script header
-# ========================================
-echo ""
-print_green "🚀 Deploying Dota2 Meta Lab Platform with Helm..."
-echo ""
 
 # ========================================
 # 📥 Parse arguments
@@ -77,21 +107,23 @@ else
     SKIP_KIND=false
     SKIP_METRICS=false
     
-    # Load .env file
-    if [ ! -f ../.env ]; then
-        print_red "❌ Error: .env file not found in root directory!"
+    # Check if .env exists
+    if [ ! -f "$PROJECT_ROOT/.env" ]; then
+        print_red "❌ Error: .env file not found in project root!"
         echo "Please create a .env file with:"
         echo "  MONGODB_USERNAME=your_username"
         echo "  MONGODB_PASSWORD=your_password"
         exit 1
     fi
-    
-    export $(cat ../.env | grep -v '^#' | xargs)
 fi
 
 # Verify required variables
 if [ -z "$MONGODB_USERNAME" ] || [ -z "$MONGODB_PASSWORD" ]; then
     print_red "❌ Error: MONGODB_USERNAME or MONGODB_PASSWORD not set"
+    echo ""
+    echo "Make sure your .env file contains:"
+    echo "  MONGODB_USERNAME=admin"
+    echo "  MONGODB_PASSWORD=your_secure_password"
     exit 1
 fi
 
@@ -103,14 +135,14 @@ echo ""
 # ========================================
 if [ "$SKIP_KIND" = false ]; then
     print_blue "🔍 Step 1: Checking for existing cluster..."
-    if kind get clusters 2>/dev/null | grep -q "ml-cluster"; then
-        print_yellow "⚠️  Cluster 'ml-cluster' already exists. Skipping creation."
+    if kind get clusters 2>/dev/null | grep -q "$CLUSTER_NAME"; then
+        print_yellow "⚠️  Cluster '$CLUSTER_NAME' already exists. Skipping creation."
     else
         print_blue "🏗️  Creating directories..."
-        mkdir -p ../data/{control-plane-{1..3},ml-training,mongodb,redis} ../models
+        mkdir -p "$PROJECT_ROOT/data"/{control-plane-{1..3},ml-training,mongodb,redis} "$PROJECT_ROOT/models"
         
         print_blue "🏗️  Creating Kind cluster..."
-        kind create cluster --config ../k8s/ha/kind-ha-cluster.yaml --name ml-cluster
+        kind create cluster --config "$PROJECT_ROOT/k8s/ha/kind-ha-cluster.yaml" --name "$CLUSTER_NAME"
         print_green "✅ Cluster created"
         
         echo "⏳ Waiting for cluster to be ready..."
@@ -202,18 +234,47 @@ fi
 echo ""
 
 # ========================================
+# 🔧 Step 3.5: Fix PVC Ownership
+# ========================================
+print_blue "🔧 Step 3.5: Ensuring PVC ownership for Helm..."
+
+RELEASE_NAME="dota2-meta-lab"
+NAMESPACE="data"
+
+PVCS=$(kubectl get pvc -n $NAMESPACE -o name 2>/dev/null || echo "")
+
+if [ -n "$PVCS" ]; then
+    for pvc in $PVCS; do
+        PVC_NAME=$(echo $pvc | cut -d'/' -f2)
+        
+        kubectl label pvc $PVC_NAME -n $NAMESPACE \
+            app.kubernetes.io/managed-by=Helm --overwrite &>/dev/null || true
+        
+        kubectl annotate pvc $PVC_NAME -n $NAMESPACE \
+            meta.helm.sh/release-name=$RELEASE_NAME \
+            meta.helm.sh/release-namespace=$NAMESPACE \
+            --overwrite &>/dev/null || true
+        
+        print_green "  ✓ Fixed: $PVC_NAME"
+    done
+fi
+
+print_green "✅ All PVCs ready for Helm"
+echo ""
+
+# ========================================
 # 🎡 Step 4: Deploy with Helm
 # ========================================
 print_blue "🎡 Step 4: Deploying with Helm..."
 
 # Navigate to helm chart directory
-cd "$(dirname "$0")/../deploy/helm" || {
-    print_red "❌ Cannot find Helm chart directory"
-    print_yellow "Current directory: $(pwd)"
-    print_yellow "Looking for: $(dirname "$0")/../deploy/helm"
+HELM_DIR="$PROJECT_ROOT/deploy/helm"
+if [ ! -d "$HELM_DIR" ]; then
+    print_red "❌ Cannot find Helm chart directory: $HELM_DIR"
     exit 1
-}
+fi
 
+cd "$HELM_DIR"
 print_blue "Current directory: $(pwd)"
 
 # Validate Helm chart
@@ -260,22 +321,6 @@ else
     exit 1
 fi
 
-# helm upgrade --install dota2-meta-lab . \
-#   --values values-${ENVIRONMENT}.yaml \
-#   --set image.tag=${IMAGE_TAG} \
-#   --timeout 15m
-
-# # Then manually verify in your script
-# echo "⏳ Waiting for pods to be ready..."
-# kubectl wait --for=condition=ready pod -l app=mongodb -n data --timeout=5m
-# kubectl wait --for=condition=ready pod -l app=redis -n data --timeout=5m
-# kubectl wait --for=condition=ready pod -l app=dota2-api -n data --timeout=5m
-
-# # Check if any pods failed
-# if kubectl get pods -n data | grep -E 'CrashLoopBackOff|Error|ImagePullBackOff'; then
-#   echo "❌ Some pods failed!"
-#   exit 1
-# fi
 echo ""
 
 # ========================================

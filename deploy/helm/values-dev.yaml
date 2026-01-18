@@ -3,9 +3,9 @@
 global:
   namespace: data
 
-# Storage - use existing
+# Storage - create for Kind cluster
 storage:
-  createStorageClass: false  # Set to false - create manually
+  createStorageClass: true
   storageClassName: standard
 
 # Image
@@ -45,7 +45,7 @@ redis:
 
 # Data Fetcher
 dataFetcher:
-  enabled: false
+  enabled: true
   name: dota2-fetcher
   replicas: 1
   resources:
@@ -56,11 +56,11 @@ dataFetcher:
       memory: "512Mi"
       cpu: "250m"
 
-# ML Trainer
+# ML Trainer - DISABLE for now (no training data yet)
 mlTrainer:
-  enabled: true  # ← Enable it now
+  enabled: false  # ← Change to false until you have data
   replicas: 1
-  name: dota2-trainer  # ← ADDED
+  name: dota2-trainer
   persistence:
     enabled: true
     size: 10Gi
@@ -84,7 +84,7 @@ api:
     limits:
       memory: "1Gi"
       cpu: "250m"
-
+      
 # No autoscaling in dev
 autoscaling:
   enabled: false

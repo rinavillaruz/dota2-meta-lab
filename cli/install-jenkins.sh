@@ -6,6 +6,46 @@ echo "🚀 Installing Jenkins in Kubernetes"
 echo "===================================="
 echo ""
 
+# -----------------------------------------------------------------------------
+# Configuration - Load from .env file
+# -----------------------------------------------------------------------------
+
+# Determine directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load .env file - check in order: custom location, project root, home directory
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+elif [ -f "$HOME/.env" ]; then
+    source "$HOME/.env"
+fi
+
+# Jenkins Configuration (with defaults)
+JENKINS_NAMESPACE="${JENKINS_NAMESPACE:-jenkins}"
+JENKINS_ADMIN_PASSWORD="${JENKINS_ADMIN_PASSWORD:-changeme}"
+
+# GitHub Configuration
+GITHUB_USERNAME="${GITHUB_USERNAME:-}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
+# Docker Hub Configuration
+DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
+DOCKERHUB_TOKEN="${DOCKERHUB_TOKEN:-}"
+DOCKERHUB_EMAIL="${DOCKERHUB_EMAIL:-admin@example.com}"
+
+# Debug mode
+if [ "${DEBUG:-false}" = "true" ]; then
+    echo "🐛 Debug - Configuration:"
+    echo "  Project Root: $PROJECT_ROOT"
+    echo "  JENKINS_NAMESPACE: $JENKINS_NAMESPACE"
+    echo "  DOCKERHUB_USERNAME: $DOCKERHUB_USERNAME"
+    echo "  GITHUB_USERNAME: $GITHUB_USERNAME"
+    echo ""
+fi
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -16,8 +56,6 @@ NC='\033[0m'
 # -----------------------------------------------------------------------------
 # 🧭 Define directories
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 JENKINS_DIR="$PROJECT_ROOT/jenkins-k8s/base"
 
 # Check if manifests directory exists
@@ -43,16 +81,6 @@ if [ ! -d "$JENKINS_DIR" ]; then
 fi
 
 echo -e "${BLUE}Using manifests from: $JENKINS_DIR${NC}\n"
-
-# Load .env file if it exists
-if [ -f "$PROJECT_ROOT/.env" ]; then
-    echo "Loading environment variables from .env..."
-    export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
-    echo -e "${GREEN}✅ Environment variables loaded${NC}"
-else
-    echo -e "${YELLOW}⚠️  .env file not found at $PROJECT_ROOT/.env${NC}"
-    echo "Will use default credentials"
-fi
 
 # -----------------------------------------------------------------------------
 # Step -1: Build Jenkins Docker Image with Docker CLI (AUTOMATED!)
@@ -197,34 +225,23 @@ echo ""
 
 # Create Jenkins namespace first
 echo "Creating Jenkins namespace..."
-kubectl create namespace jenkins --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "$JENKINS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 echo -e "${GREEN}✅ Namespace created/verified${NC}"
 
 # Create Jenkins admin credentials secret from .env or use default
-if [ -n "$JENKINS_ADMIN_PASSWORD" ]; then
-    echo "Creating Jenkins admin credentials from .env..."
-    kubectl create secret generic jenkins-admin-credentials \
-        --from-literal=password="$JENKINS_ADMIN_PASSWORD" \
-        -n jenkins \
-        --dry-run=client -o yaml | kubectl apply -f -
-    echo -e "${GREEN}✅ Jenkins credentials created from .env${NC}"
-    echo -e "${BLUE}Password set from JENKINS_ADMIN_PASSWORD${NC}"
-else
-    echo -e "${YELLOW}⚠️  JENKINS_ADMIN_PASSWORD not found in .env${NC}"
-    echo "Using default password: changeme"
-    kubectl create secret generic jenkins-admin-credentials \
-        --from-literal=password="changeme" \
-        -n jenkins \
-        --dry-run=client -o yaml | kubectl apply -f -
-    echo -e "${GREEN}✅ Jenkins credentials created with default password${NC}"
-fi
+echo "Creating Jenkins admin credentials..."
+kubectl create secret generic jenkins-admin-credentials \
+    --from-literal=password="$JENKINS_ADMIN_PASSWORD" \
+    -n "$JENKINS_NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+echo -e "${GREEN}✅ Jenkins credentials created${NC}"
 
 # Create GitHub credentials secret
 if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_TOKEN" ]; then
     kubectl create secret generic github-credentials \
         --from-literal=username="$GITHUB_USERNAME" \
         --from-literal=token="$GITHUB_TOKEN" \
-        -n jenkins \
+        -n "$JENKINS_NAMESPACE" \
         --dry-run=client -o yaml | kubectl apply -f -
     echo -e "${GREEN}✅ GitHub credentials secret created${NC}"
 else
@@ -236,7 +253,7 @@ if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
     kubectl create secret generic dockerhub-credentials \
         --from-literal=username="$DOCKERHUB_USERNAME" \
         --from-literal=token="$DOCKERHUB_TOKEN" \
-        -n jenkins \
+        -n "$JENKINS_NAMESPACE" \
         --dry-run=client -o yaml | kubectl apply -f -
     echo -e "${GREEN}✅ Docker Hub credentials secret created${NC}"
 else
@@ -250,8 +267,8 @@ if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
         --docker-server=https://index.docker.io/v1/ \
         --docker-username="$DOCKERHUB_USERNAME" \
         --docker-password="$DOCKERHUB_TOKEN" \
-        --docker-email="${DOCKERHUB_EMAIL:-admin@example.com}" \
-        -n jenkins \
+        --docker-email="$DOCKERHUB_EMAIL" \
+        -n "$JENKINS_NAMESPACE" \
         --dry-run=client -o yaml | kubectl apply -f -
     echo -e "${GREEN}✅ ImagePullSecret created for private repository${NC}"
 else
@@ -283,7 +300,7 @@ kubectl apply -f "$JENKINS_DIR/04-pvc.yaml"
 
 # Wait for PVC to be bound
 echo "Waiting for PVC to be bound..."
-kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/jenkins-pvc -n jenkins --timeout=60s || {
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/jenkins-pvc -n "$JENKINS_NAMESPACE" --timeout=60s || {
     echo -e "${YELLOW}⚠️  PVC not bound yet, continuing anyway...${NC}"
 }
 echo -e "${GREEN}✅ PVC created${NC}\n"
@@ -359,7 +376,7 @@ sleep 5
 
 JENKINS_POD=""
 for i in {1..30}; do
-    JENKINS_POD=$(kubectl get pods -n jenkins -l app=jenkins -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    JENKINS_POD=$(kubectl get pods -n "$JENKINS_NAMESPACE" -l app=jenkins -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     if [ -n "$JENKINS_POD" ]; then
         break
     fi
@@ -372,28 +389,28 @@ if [ -n "$JENKINS_POD" ]; then
     echo "Checking init container status..."
     
     # Check if init container is running
-    INIT_STATUS=$(kubectl get pod -n jenkins $JENKINS_POD -o jsonpath='{.status.initContainerStatuses[0].state}' 2>/dev/null || echo "")
+    INIT_STATUS=$(kubectl get pod -n "$JENKINS_NAMESPACE" $JENKINS_POD -o jsonpath='{.status.initContainerStatuses[0].state}' 2>/dev/null || echo "")
     
     if echo "$INIT_STATUS" | grep -q "running"; then
         echo "Init container is installing plugins..."
-        echo "You can watch logs with: kubectl logs -n jenkins $JENKINS_POD -c install-plugins -f"
+        echo "You can watch logs with: kubectl logs -n $JENKINS_NAMESPACE $JENKINS_POD -c install-plugins -f"
     fi
 fi
 
-kubectl wait --for=condition=ready pod -l app=jenkins -n jenkins --timeout=300s || {
+kubectl wait --for=condition=ready pod -l app=jenkins -n "$JENKINS_NAMESPACE" --timeout=300s || {
     echo -e "${RED}❌ Jenkins pod did not become ready in time${NC}"
     echo ""
     echo "Check pod status:"
-    echo "  kubectl get pods -n jenkins"
+    echo "  kubectl get pods -n $JENKINS_NAMESPACE"
     echo ""
     echo "Check init container logs:"
-    echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+    echo "  kubectl logs -n $JENKINS_NAMESPACE $JENKINS_POD -c install-plugins"
     echo ""
     echo "Check main container logs:"
-    echo "  kubectl logs -n jenkins $JENKINS_POD -c jenkins"
+    echo "  kubectl logs -n $JENKINS_NAMESPACE $JENKINS_POD -c jenkins"
     echo ""
     echo "Check events:"
-    echo "  kubectl get events -n jenkins --sort-by='.lastTimestamp'"
+    echo "  kubectl get events -n $JENKINS_NAMESPACE --sort-by='.lastTimestamp'"
     exit 1
 }
 
@@ -402,7 +419,7 @@ echo -e "${GREEN}✅ Jenkins is ready!${NC}\n"
 # -----------------------------------------------------------------------------
 # Step 10: Get Jenkins info and verify plugins
 # -----------------------------------------------------------------------------
-JENKINS_POD=$(kubectl get pods -n jenkins -l app=jenkins -o jsonpath='{.items[0].metadata.name}')
+JENKINS_POD=$(kubectl get pods -n "$JENKINS_NAMESPACE" -l app=jenkins -o jsonpath='{.items[0].metadata.name}')
 
 echo -e "${BLUE}Step 10: Retrieving Jenkins information...${NC}"
 echo "Jenkins Pod: $JENKINS_POD"
@@ -410,23 +427,23 @@ echo ""
 
 # Check plugin installation
 echo "Verifying plugin installation..."
-PLUGIN_COUNT=$(kubectl exec -n jenkins $JENKINS_POD -- find /var/jenkins_home/plugins -name "*.jpi" -o -name "*.hpi" 2>/dev/null | wc -l || echo "0")
+PLUGIN_COUNT=$(kubectl exec -n "$JENKINS_NAMESPACE" $JENKINS_POD -- find /var/jenkins_home/plugins -name "*.jpi" -o -name "*.hpi" 2>/dev/null | wc -l || echo "0")
 
 if [ "$PLUGIN_COUNT" -gt 20 ]; then
     echo -e "${GREEN}✅ $PLUGIN_COUNT plugins installed successfully${NC}"
 else
     echo -e "${YELLOW}⚠️  Only $PLUGIN_COUNT plugins found${NC}"
     echo "Check init container logs for errors:"
-    echo "  kubectl logs -n jenkins $JENKINS_POD -c install-plugins"
+    echo "  kubectl logs -n $JENKINS_NAMESPACE $JENKINS_POD -c install-plugins"
 fi
 
 echo ""
 
 # Verify kubectl, helm, and docker are installed
 echo "Verifying tools in Jenkins container..."
-kubectl exec -n jenkins $JENKINS_POD -- docker --version
-kubectl exec -n jenkins $JENKINS_POD -- kubectl version --client
-kubectl exec -n jenkins $JENKINS_POD -- helm version
+kubectl exec -n "$JENKINS_NAMESPACE" $JENKINS_POD -- docker --version
+kubectl exec -n "$JENKINS_NAMESPACE" $JENKINS_POD -- kubectl version --client
+kubectl exec -n "$JENKINS_NAMESPACE" $JENKINS_POD -- helm version
 
 echo ""
 
@@ -440,13 +457,7 @@ echo ""
 echo -e "${BLUE}Access Information:${NC}"
 echo "  URL: http://localhost:30808"
 echo "  Username: admin"
-
-if [ -n "$JENKINS_ADMIN_PASSWORD" ]; then
-    echo "  Password: [From .env JENKINS_ADMIN_PASSWORD]"
-else
-    echo "  Password: changeme"
-fi
-
+echo "  Password: $JENKINS_ADMIN_PASSWORD"
 echo ""
 echo -e "${YELLOW}⚠️  IMPORTANT: Change the admin password after first login!${NC}"
 echo ""
@@ -456,7 +467,7 @@ echo "=========================================="
 echo ""
 
 # Show all resources
-kubectl get all,pvc,configmap,secret -n jenkins
+kubectl get all,pvc,configmap,secret -n "$JENKINS_NAMESPACE"
 
 echo ""
 echo "=========================================="
@@ -491,22 +502,22 @@ echo -e "${BLUE}ℹ️  Useful Commands${NC}"
 echo "=========================================="
 echo ""
 echo "View Jenkins logs:"
-echo "  kubectl logs -n jenkins $JENKINS_POD -c jenkins -f"
+echo "  kubectl logs -n $JENKINS_NAMESPACE $JENKINS_POD -c jenkins -f"
 echo ""
 echo "Test kubectl access:"
-echo "  kubectl exec -n jenkins $JENKINS_POD -- kubectl get namespaces"
+echo "  kubectl exec -n $JENKINS_NAMESPACE $JENKINS_POD -- kubectl get namespaces"
 echo ""
 echo "Test helm:"
-echo "  kubectl exec -n jenkins $JENKINS_POD -- helm list -A"
+echo "  kubectl exec -n $JENKINS_NAMESPACE $JENKINS_POD -- helm list -A"
 echo ""
 echo "Test docker:"
-echo "  kubectl exec -n jenkins $JENKINS_POD -- docker ps"
+echo "  kubectl exec -n $JENKINS_NAMESPACE $JENKINS_POD -- docker ps"
 echo ""
 echo "Restart Jenkins:"
-echo "  kubectl rollout restart deployment/jenkins -n jenkins"
+echo "  kubectl rollout restart deployment/jenkins -n $JENKINS_NAMESPACE"
 echo ""
 echo "Uninstall Jenkins:"
-echo "  kubectl delete namespace jenkins"
+echo "  kubectl delete namespace $JENKINS_NAMESPACE"
 echo "  kubectl delete clusterrole jenkins-deployer"
 echo "  kubectl delete clusterrolebinding jenkins-deployer-binding"
 echo ""

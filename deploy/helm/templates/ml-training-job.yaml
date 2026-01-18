@@ -21,7 +21,7 @@ spec:
           {{- if .Values.mlTrainer.persistence.enabled }}
           volumeMounts:
             - name: training-data
-              mountPath: /data/training
+              mountPath: /data/ml-training
               readOnly: true
             - name: models
               mountPath: /models

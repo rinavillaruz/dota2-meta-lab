@@ -14,9 +14,19 @@ import json
 from datetime import datetime
 
 class Dota2ModelTrainer:
-    def __init__(self, data_file='data/processed_matches.csv'):
+    def __init__(self, data_file='/data/ml-training/processed_matches.csv'):
         """Initialize trainer with processed data"""
         print(f"📚 Loading processed data from {data_file}...")
+        
+        if not os.path.exists(data_file):
+            print(f"❌ ERROR: Data file not found at {data_file}")
+            print(f"📁 Available files in /data/ml-training:")
+            try:
+                for f in os.listdir('/data/ml-training'):
+                    print(f"   - {f}")
+            except Exception as e:
+                print(f"   Could not list directory: {e}")
+            raise FileNotFoundError(f"Training data not found: {data_file}")
         
         self.df = pd.read_csv(data_file)
         print(f"✅ Loaded {len(self.df)} matches")
@@ -158,7 +168,7 @@ class Dota2ModelTrainer:
             'loss': float(loss)
         }
     
-    def save_model(self, model_dir='models'):
+    def save_model(self, model_dir='/models'):
         """Save trained model and scaler"""
         print(f"\n💾 Saving model to {model_dir}/...")
         
@@ -198,7 +208,7 @@ def main():
     print("=" * 60)
     
     # Initialize trainer
-    trainer = Dota2ModelTrainer('data/processed_matches.csv')
+    trainer = Dota2ModelTrainer('/data/ml-training/processed_matches.csv')
     
     # Prepare data
     X_train, X_test, y_train, y_test = trainer.prepare_data(test_size=0.2)
@@ -210,14 +220,14 @@ def main():
     metrics = trainer.evaluate(X_test, y_test)
     
     # Save model
-    trainer.save_model('models')
+    trainer.save_model('/models')
     
     print("\n" + "=" * 60)
     print("✅ Model training complete!")
     print(f"   Final Accuracy: {metrics['accuracy']*100:.2f}%")
     print(f"   AUC Score: {metrics['auc']:.4f}")
     print("=" * 60)
-    print("\nNext step: python scripts/store_database.py")
+    print("\nNext step: Deploy the model with the API")
 
 if __name__ == "__main__":
     main()

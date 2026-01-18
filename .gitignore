@@ -10,6 +10,10 @@ ENV/
 .venv
 pip-log.txt
 pip-delete-this-directory.txt
+build/
+dist/
+*.egg-info/
+.eggs/
 
 # IDEs
 .vscode/
@@ -17,10 +21,16 @@ pip-delete-this-directory.txt
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
 # OS
 .DS_Store
 Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
 # Data
 /data/
@@ -28,29 +38,87 @@ data/opendota_*/
 *.csv
 *.json
 !deploy/helm/**/*.json
+!.env.example  # Allow .env.example to be committed
+*.parquet
+*.feather
 
 # Models
 models/*.h5
 models/*.pkl
 *.ckpt
+*.pt
+*.pth
+*.onnx
+*.pb
 
 # Logs
 logs/
 *.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
+*.cover
+.tox/
 
 # Kubernetes
 *.kubeconfig
+kubeconfig
+!kubeconfig.example
 
-# Secrets
+# Secrets & Credentials
 .env
+.env.local
+.env.*.local
+!.env.example  # Keep the template
 secrets/
+*.pem
+*.key
+credentials.json
+token.json
+*-credentials.txt
+argocd-connection-info.txt
+jenkins-admin-credentials.txt
 
-# others
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Node (if using any JS/React)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Temporary files
 /tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Tests
 /tests/
+
+# CLI
 /cli/manual.sh
+
+# Build artifacts
+*.tar.gz
+*.zip
+dist/
+build/
+
+# Database dumps
+*.sql
+*.sqlite
+*.db

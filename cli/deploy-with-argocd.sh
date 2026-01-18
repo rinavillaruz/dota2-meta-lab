@@ -6,6 +6,43 @@ echo "🚀 Deploying Dota2 Meta Lab via ArgoCD"
 echo "======================================="
 echo ""
 
+# -----------------------------------------------------------------------------
+# Configuration - Load from .env file
+# -----------------------------------------------------------------------------
+
+# Determine directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load .env file - check in order: custom location, project root, home directory
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+elif [ -f "$HOME/.env" ]; then
+    source "$HOME/.env"
+fi
+
+# ArgoCD Configuration (with defaults)
+ARGOCD_HOST="${ARGOCD_HOST:-localhost}"
+ARGOCD_PORT="${ARGOCD_PORT:-30080}"
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+ARGOCD_URL="http://${ARGOCD_HOST}:${ARGOCD_PORT}"
+
+# GitHub Configuration (needed for repository verification)
+GITHUB_USERNAME="${GITHUB_USERNAME:-rinavillaruz}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
+# Debug mode
+if [ "${DEBUG:-false}" = "true" ]; then
+    echo "🐛 Debug - Configuration:"
+    echo "  Project Root: $PROJECT_ROOT"
+    echo "  ARGOCD_URL: $ARGOCD_URL"
+    echo "  ARGOCD_NAMESPACE: $ARGOCD_NAMESPACE"
+    echo "  GITHUB_USERNAME: $GITHUB_USERNAME"
+    echo ""
+fi
+
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -16,8 +53,6 @@ NC='\033[0m'
 # -----------------------------------------------------------------------------
 # 🧭 Define directories
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARGOCD_DIR="$PROJECT_ROOT/argocd-apps"
 ARGOCD_APP_FILE="$ARGOCD_DIR/dota2-dev.yaml"
 
@@ -26,12 +61,12 @@ ARGOCD_APP_FILE="$ARGOCD_DIR/dota2-dev.yaml"
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 0: Validating prerequisites...${NC}"
 
-if ! kubectl get namespace argocd &>/dev/null; then
-    echo -e "${RED}❌ ArgoCD namespace not found${NC}"
+if ! kubectl get namespace "$ARGOCD_NAMESPACE" &>/dev/null; then
+    echo -e "${RED}❌ ArgoCD namespace '$ARGOCD_NAMESPACE' not found${NC}"
     exit 1
 fi
 
-if ! kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
+if ! kubectl get pods -n "$ARGOCD_NAMESPACE" -l app.kubernetes.io/name=argocd-server --field-selector=status.phase=Running 2>/dev/null | grep -q Running; then
     echo -e "${RED}❌ ArgoCD server is not running${NC}"
     exit 1
 fi
@@ -55,7 +90,7 @@ if ! kubectl get crd applications.argoproj.io &>/dev/null; then
     echo "ArgoCD may not be properly installed"
     echo ""
     echo "Try reinstalling ArgoCD:"
-    echo "  kubectl delete namespace argocd"
+    echo "  kubectl delete namespace $ARGOCD_NAMESPACE"
     echo "  ./cli/install-argocd.sh"
     exit 1
 fi
@@ -68,7 +103,7 @@ echo ""
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 1: Retrieving admin credentials...${NC}"
 
-ADMIN_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
+ADMIN_PASSWORD=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
 
 if [ -z "$ADMIN_PASSWORD" ]; then
     echo -e "${RED}❌ Could not retrieve admin password${NC}"
@@ -85,11 +120,11 @@ echo ""
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 2: Checking ArgoCD service configuration...${NC}"
 
-SERVICE_TYPE=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')
+SERVICE_TYPE=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.type}')
 
 if [ "$SERVICE_TYPE" = "NodePort" ]; then
-    NODEPORT=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
-    ARGOCD_SERVER="localhost:$NODEPORT"
+    NODEPORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
+    ARGOCD_SERVER="${ARGOCD_HOST}:$NODEPORT"
     echo -e "${GREEN}✅ ArgoCD accessible via NodePort: $NODEPORT${NC}"
     echo "Using: https://$ARGOCD_SERVER"
 else
@@ -101,7 +136,7 @@ else
     
     # Start port-forward in background
     echo "Starting port-forward on localhost:8080..."
-    kubectl port-forward -n argocd svc/argocd-server 8080:443 >/dev/null 2>&1 &
+    kubectl port-forward -n "$ARGOCD_NAMESPACE" svc/argocd-server 8080:443 >/dev/null 2>&1 &
     PF_PID=$!
     
     # Wait for port-forward to establish
@@ -171,13 +206,21 @@ echo ""
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}Step 3.5: Verifying Helm chart exists in GitHub...${NC}"
 
-REPO_OWNER="rinavillaruz"
+REPO_OWNER="${GITHUB_USERNAME}"
 REPO_NAME="dota2-meta-lab"
 HELM_PATH="deploy/helm"
 
 echo "Checking: https://github.com/$REPO_OWNER/$REPO_NAME/tree/main/$HELM_PATH"
 
+# Build auth header if token is available
+if [ -n "$GITHUB_TOKEN" ]; then
+    AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
+else
+    AUTH_HEADER=""
+fi
+
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
   "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/contents/$HELM_PATH")
 
 if [ "$HTTP_CODE" != "200" ]; then
@@ -206,6 +249,7 @@ echo -e "${GREEN}✅ Helm chart path exists in repository${NC}"
 # Check for required files
 for file in "Chart.yaml" "values.yaml" "values-dev.yaml"; do
     FILE_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      ${AUTH_HEADER:+-H "$AUTH_HEADER"} \
       "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/contents/$HELM_PATH/$file")
     
     if [ "$FILE_HTTP_CODE" = "200" ]; then
@@ -223,19 +267,19 @@ echo ""
 echo -e "${BLUE}Step 4: Applying ArgoCD Application manifest...${NC}"
 
 # First, check if application already exists
-if kubectl get application dota2-dev -n argocd &>/dev/null; then
+if kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" &>/dev/null; then
     echo -e "${YELLOW}⚠️  Application 'dota2-dev' already exists${NC}"
     
     # Show current status
     echo "Current application status:"
-    kubectl get application dota2-dev -n argocd -o jsonpath='{.status.conditions[*].message}' 2>/dev/null || echo "No status conditions"
+    kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.conditions[*].message}' 2>/dev/null || echo "No status conditions"
     echo ""
     
     read -p "Delete and recreate? (Y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         echo "Deleting existing application..."
-        kubectl delete application dota2-dev -n argocd
+        kubectl delete application dota2-dev -n "$ARGOCD_NAMESPACE"
         echo "Waiting for deletion..."
         sleep 5
     else
@@ -266,7 +310,7 @@ echo -e "${BLUE}Step 5: Checking application status...${NC}"
 
 # First check if the Application CRD resource exists in Kubernetes
 echo "Checking if Application resource exists in Kubernetes..."
-if ! kubectl get application dota2-dev -n argocd &>/dev/null; then
+if ! kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" &>/dev/null; then
     echo -e "${RED}❌ Application resource not found in Kubernetes${NC}"
     [ ! -z "$PF_PID" ] && kill $PF_PID 2>/dev/null || true
     exit 1
@@ -275,7 +319,7 @@ fi
 echo -e "${GREEN}✅ Application resource exists in Kubernetes${NC}"
 
 # Check for errors in the application status
-APP_ERROR=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.conditions[?(@.type=="ComparisonError")].message}' 2>/dev/null)
+APP_ERROR=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="ComparisonError")].message}' 2>/dev/null)
 if [ -n "$APP_ERROR" ]; then
     echo ""
     echo -e "${RED}❌ Application has a ComparisonError:${NC}"
@@ -302,13 +346,13 @@ fi
 
 echo ""
 echo "Application details:"
-argocd app get dota2-dev --grpc-web 2>/dev/null || kubectl get application dota2-dev -n argocd -o yaml
+argocd app get dota2-dev --grpc-web 2>/dev/null || kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o yaml
 
 echo ""
 
 # Get application status from Kubernetes directly (more reliable)
-APP_HEALTH=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
-APP_SYNC=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+APP_HEALTH=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+APP_SYNC=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
 
 echo -e "${BLUE}Application Status:${NC}"
 echo "  Health: $APP_HEALTH"
@@ -321,8 +365,8 @@ echo ""
 echo -e "${BLUE}Step 6: Verifying sync status...${NC}"
 
 # Check if sync already completed (automated sync)
-SYNC_STATUS=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
-OPERATION_PHASE=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.operationState.phase}' 2>/dev/null)
+SYNC_STATUS=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.sync.status}' 2>/dev/null)
+OPERATION_PHASE=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.operationState.phase}' 2>/dev/null)
 
 echo "Sync Status: $SYNC_STATUS"
 echo "Operation Phase: $OPERATION_PHASE"
@@ -340,14 +384,14 @@ elif [ "$SYNC_STATUS" = "OutOfSync" ]; then
     else
         # Fallback: use kubectl to trigger sync
         echo "CLI sync failed, using kubectl annotation to trigger sync..."
-        kubectl annotate application dota2-dev -n argocd argocd.argoproj.io/refresh=hard --overwrite
+        kubectl annotate application dota2-dev -n "$ARGOCD_NAMESPACE" argocd.argoproj.io/refresh=hard --overwrite
         echo -e "${GREEN}✅ Sync triggered via annotation${NC}"
     fi
     
     # Wait for sync to complete
     echo "Waiting for sync to complete..."
     for i in {1..30}; do
-        SYNC_STATUS=$(kubectl get application dota2-dev -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
+        SYNC_STATUS=$(kubectl get application dota2-dev -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.sync.status}' 2>/dev/null)
         if [ "$SYNC_STATUS" = "Synced" ]; then
             echo -e "${GREEN}✅ Sync completed${NC}"
             break
@@ -423,7 +467,7 @@ echo ""
 if [ ! -z "$PF_PID" ]; then
     echo -e "${BLUE}Port-forward:${NC}"
     echo "  To stop: kill $PF_PID"
-    echo "  To restart: kubectl port-forward -n argocd svc/argocd-server 8080:443 &"
+    echo "  To restart: kubectl port-forward -n $ARGOCD_NAMESPACE svc/argocd-server 8080:443 &"
     echo ""
 fi
 

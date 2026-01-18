@@ -5,6 +5,34 @@ set -e  # Exit on any error
 echo "🔄 Installing ArgoCD in Kubernetes..."
 
 # -----------------------------------------------------------------------------
+# Configuration - Load from .env file
+# -----------------------------------------------------------------------------
+
+# Determine directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load .env file - check in order: custom location, project root, home directory
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+elif [ -f "$HOME/.env" ]; then
+    source "$HOME/.env"
+fi
+
+# ArgoCD Configuration (with defaults)
+ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+
+# Debug mode
+if [ "${DEBUG:-false}" = "true" ]; then
+    echo "🐛 Debug - Configuration:"
+    echo "  Project Root: $PROJECT_ROOT"
+    echo "  ARGOCD_NAMESPACE: $ARGOCD_NAMESPACE"
+    echo ""
+fi
+
+# -----------------------------------------------------------------------------
 # 🎨 Colors for output
 # -----------------------------------------------------------------------------
 GREEN='\033[0;32m'
@@ -16,8 +44,6 @@ NC='\033[0m' # No Color
 # -----------------------------------------------------------------------------
 # 🧭 Define directories (so script works from anywhere)
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR="$PROJECT_ROOT/tmp"
 VALUES_FILE="$TMP_DIR/argocd-values.yaml"
 
@@ -29,7 +55,7 @@ mkdir -p "$TMP_DIR"
 echo -e "${BLUE}🔍 Step 1: Checking cluster connection...${NC}"
 if ! kubectl cluster-info &> /dev/null; then
     echo -e "${RED}❌ Cannot connect to cluster. Please ensure your cluster is running.${NC}"
-    echo "Run: cd scripts && ./deploy-with-helm.sh dev"
+    echo "Run: cd cli && ./deploy-with-helm.sh dev"
     exit 1
 fi
 echo -e "${GREEN}✅ Connected to cluster${NC}\n"
@@ -39,16 +65,16 @@ echo -e "${GREEN}✅ Connected to cluster${NC}\n"
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🔍 Step 2: Checking if ArgoCD is already installed...${NC}"
 
-if kubectl get namespace argocd &> /dev/null; then
+if kubectl get namespace "$ARGOCD_NAMESPACE" &> /dev/null; then
     # Namespace exists
-    if helm list -n argocd | grep -q "argocd"; then
+    if helm list -n "$ARGOCD_NAMESPACE" | grep -q "argocd"; then
         echo -e "${GREEN}✅ Argo CD is already installed${NC}"
         read -p "Do you want to reinstall? This will delete the existing installation. (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             echo -e "${YELLOW}⚠️  Uninstalling existing ArgoCD...${NC}"
-            helm uninstall argocd -n argocd 2>/dev/null || true
-            kubectl delete namespace argocd --ignore-not-found
+            helm uninstall argocd -n "$ARGOCD_NAMESPACE" 2>/dev/null || true
+            kubectl delete namespace "$ARGOCD_NAMESPACE" --ignore-not-found
             echo -e "${BLUE}⏳ Reinstalling ArgoCD...${NC}"
             sleep 5
         else
@@ -57,7 +83,7 @@ if kubectl get namespace argocd &> /dev/null; then
         fi
     else
         echo -e "${YELLOW}⚠️  ArgoCD namespace exists but Helm release not found. Cleaning up...${NC}"
-        kubectl delete namespace argocd --ignore-not-found
+        kubectl delete namespace "$ARGOCD_NAMESPACE" --ignore-not-found
         sleep 3
     fi
 else
@@ -78,7 +104,7 @@ echo -e "${GREEN}✅ ArgoCD Helm repo added${NC}\n"
 # Step 4: Create ArgoCD namespace
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}📁 Step 4: Creating ArgoCD namespace...${NC}"
-kubectl create namespace argocd
+kubectl create namespace "$ARGOCD_NAMESPACE"
 echo -e "${GREEN}✅ Namespace created${NC}\n"
 
 # -----------------------------------------------------------------------------
@@ -151,18 +177,18 @@ echo -e "${GREEN}✅ Configuration created${NC}\n"
 echo -e "${BLUE}🎡 Step 6: Installing ArgoCD with Helm...${NC}"
 
 # Ensure namespace exists
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 # Check if ArgoCD release already exists
-if helm list -n argocd | grep -q "argocd"; then
+if helm list -n "$ARGOCD_NAMESPACE" | grep -q "argocd"; then
     echo -e "${YELLOW}⚠️  ArgoCD Helm release already exists. Upgrading instead...${NC}"
     helm upgrade argocd argo/argo-cd \
-      --namespace argocd \
+      --namespace "$ARGOCD_NAMESPACE" \
       --values "$VALUES_FILE"
 else
     echo "Installing ArgoCD..."
     helm install argocd argo/argo-cd \
-      --namespace argocd \
+      --namespace "$ARGOCD_NAMESPACE" \
       --values "$VALUES_FILE"
 fi
 
@@ -182,24 +208,24 @@ echo -e "${BLUE}🔧 Step 7.5: Checking for scheduling issues...${NC}"
 
 sleep 5  # Give pods a moment to schedule
 
-if kubectl get pods -n argocd 2>/dev/null | grep -q Pending; then
+if kubectl get pods -n "$ARGOCD_NAMESPACE" 2>/dev/null | grep -q Pending; then
     echo -e "${YELLOW}⚠️  Found pending pods, fixing node selectors...${NC}"
     
     # Remove nodeSelector from all deployments
-    kubectl patch deployment argocd-server -n argocd --type='json' \
+    kubectl patch deployment argocd-server -n "$ARGOCD_NAMESPACE" --type='json' \
       -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
     
-    kubectl patch deployment argocd-repo-server -n argocd --type='json' \
+    kubectl patch deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" --type='json' \
       -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
     
-    kubectl patch deployment argocd-redis -n argocd --type='json' \
+    kubectl patch deployment argocd-redis -n "$ARGOCD_NAMESPACE" --type='json' \
       -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
     
-    kubectl patch statefulset argocd-application-controller -n argocd --type='json' \
+    kubectl patch statefulset argocd-application-controller -n "$ARGOCD_NAMESPACE" --type='json' \
       -p='[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]' 2>/dev/null || true
     
     echo "Recreating pending pods..."
-    kubectl delete pod -n argocd --field-selector=status.phase=Pending 2>/dev/null || true
+    kubectl delete pod -n "$ARGOCD_NAMESPACE" --field-selector=status.phase=Pending 2>/dev/null || true
     
     echo "Waiting for pods to restart..."
     sleep 15
@@ -210,9 +236,9 @@ else
 fi
 
 # Disable crashing dex server if needed
-if kubectl get pods -n argocd 2>/dev/null | grep dex | grep -q CrashLoopBackOff; then
+if kubectl get pods -n "$ARGOCD_NAMESPACE" 2>/dev/null | grep dex | grep -q CrashLoopBackOff; then
     echo -e "${YELLOW}⚠️  Dex server crashing, scaling to 0 (not needed for local dev)${NC}"
-    kubectl scale deployment argocd-dex-server -n argocd --replicas=0 2>/dev/null || true
+    kubectl scale deployment argocd-dex-server -n "$ARGOCD_NAMESPACE" --replicas=0 2>/dev/null || true
 fi
 
 echo ""
@@ -223,18 +249,18 @@ echo ""
 echo -e "${BLUE}⏳ Step 8: Waiting for ArgoCD pods to be ready (this may take 2-3 minutes)...${NC}"
 
 # Wait for server deployment to be available
-kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=180s || {
+kubectl wait --for=condition=available deployment/argocd-server -n "$ARGOCD_NAMESPACE" --timeout=180s || {
     echo -e "${YELLOW}⚠️  Deployment not available yet, checking pod status...${NC}"
-    kubectl get pods -n argocd -o wide
+    kubectl get pods -n "$ARGOCD_NAMESPACE" -o wide
 }
 
 # Wait for server pod to be ready
 kubectl wait --for=condition=ready pod \
   -l app.kubernetes.io/name=argocd-server \
-  -n argocd \
+  -n "$ARGOCD_NAMESPACE" \
   --timeout=300s || {
     echo -e "${YELLOW}⚠️  Pods not ready yet, showing status...${NC}"
-    kubectl get pods -n argocd -o wide
+    kubectl get pods -n "$ARGOCD_NAMESPACE" -o wide
 }
 
 echo -e "${GREEN}✅ ArgoCD pods are ready${NC}\n"
@@ -250,14 +276,14 @@ sleep 5
 MAX_RETRIES=30
 RETRY_COUNT=0
 
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+while [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ]; do
     if curl -k -s -o /dev/null -w "%{http_code}" http://localhost:30080 2>/dev/null | grep -q "200\|301\|302\|307"; then
         echo -e "${GREEN}✅ ArgoCD service is accessible!${NC}\n"
         break
     fi
     
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+    if [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ]; then
         echo "Waiting for service... ($RETRY_COUNT/$MAX_RETRIES)"
         sleep 2
     else
@@ -275,7 +301,7 @@ echo ""
 # -----------------------------------------------------------------------------
 echo -e "${BLUE}🔐 Step 10: Retrieving admin password...${NC}"
 sleep 5  # Give secrets time to be created
-ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret \
+ARGOCD_PASSWORD=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d)
 echo -e "${GREEN}✅ Password retrieved${NC}\n"
 
@@ -286,12 +312,12 @@ echo -e "${BLUE}📊 ArgoCD Installation Status:${NC}\n"
 echo "=========================================="
 echo "ArgoCD Pods:"
 echo "=========================================="
-kubectl get pods -n argocd -o wide
+kubectl get pods -n "$ARGOCD_NAMESPACE" -o wide
 echo ""
 echo "=========================================="
 echo "ArgoCD Services:"
 echo "=========================================="
-kubectl get svc -n argocd
+kubectl get svc -n "$ARGOCD_NAMESPACE"
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -330,7 +356,7 @@ echo "IMPORTANT: Save this password securely!"
 echo "Password: ${ARGOCD_PASSWORD}"
 echo ""
 echo "To retrieve it later, run:"
-echo "   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d"
+echo "   kubectl -n $ARGOCD_NAMESPACE get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d"
 echo ""
 
 # -----------------------------------------------------------------------------

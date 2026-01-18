@@ -109,48 +109,12 @@ ENV MODEL_DIR=/models
 ENV LOG_LEVEL=INFO
 ENV PYTHONUNBUFFERED=1
 
-# Expose port
-EXPOSE 8080
+# Expose port (changed from 8080 to 8000)
+EXPOSE 8000
 
-# Health check
+# Health check (changed from 8080 to 8000)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD python -c "import requests; requests.get('http://localhost:8080/health')"
+  CMD python -c "import requests; requests.get('http://localhost:8000/health')"
 
-# Run API server
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--timeout", "120", "src.api.app:app"]
-
-
-# =============================================================================
-# Stage 4: Development
-# =============================================================================
-FROM base AS development
-
-# Copy requirements
-COPY build/requirements.txt .
-
-# Install ALL dependencies including dev tools with cache mount
-RUN --mount=type=cache,target=/root/.cache/pip \
-    echo "🔧 Installing packages for development..." && \
-    pip install --progress-bar on -r requirements.txt && \
-    echo "📚 Installing development tools..." && \
-    pip install --progress-bar on \
-        jupyter \
-        notebook \
-        ipython \
-        pytest \
-        pytest-cov \
-        black \
-        flake8 \
-        ipdb && \
-    echo "✅ All packages installed successfully!"
-
-# Copy all code for development
-COPY src/ ./src/
-COPY scripts/ ./scripts/
-COPY tests/ ./tests/
-
-# Expose ports for Jupyter and API
-EXPOSE 8080 8888
-
-# Development mode - start Jupyter by default
-CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+# Run API server (changed from 8080 to 8000)
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "src.api.app:app"]
