@@ -2,6 +2,7 @@
 
 global:
   namespace: data
+  imageTag: latest
 
 # Storage - create for Kind cluster
 storage:
@@ -17,6 +18,7 @@ image:
 mongodb:
   enabled: true
   replicas: 1
+  database: dota2_meta_lab
   persistence:
     enabled: true
     size: 5Gi
@@ -84,7 +86,81 @@ api:
     limits:
       memory: "1Gi"
       cpu: "250m"
-      
+
+# Jupyter Notebook - Development tool (enabled only in dev)
+jupyter:
+  enabled: true  # ← Enable Jupyter for development
+  name: jupyter
+  namespace: dev-tools
+  replicas: 1
+  
+  image:
+    repository: rinavillaruz/dota2-jupyter
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    name: jupyter
+    type: NodePort
+    port: 8888
+    nodePort: 30888  # Access at http://localhost:30888
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  # Persist notebooks across deployments
+  persistence:
+    enabled: false  # Set to true to persist notebooks
+    size: 1Gi
+    # existingClaim: jupyter-notebooks  # Use existing PVC
+    # storageClass: standard
+    # accessModes:
+    #   - ReadWriteOnce
+  
+  # Additional environment variables (optional)
+  env: []
+  #   - name: JUPYTER_TOKEN
+  #     value: ""  # Empty for no password
+  
+  # Additional volume mounts (optional)
+  volumeMounts: []
+  #   - name: custom-data
+  #     mountPath: /data
+  
+  # Additional volumes (optional)
+  volumes: []
+  #   - name: custom-data
+  #     hostPath:
+  #       path: /tmp/data
+  
+  # Node selector (optional)
+  nodeSelector: {}
+  #   node-role: ml-training
+  
+  # Tolerations (optional)
+  tolerations: []
+  
+  # Affinity (optional)
+  affinity: {}
+  
+  # Custom health checks (optional)
+  livenessProbe: {}
+  #   httpGet:
+  #     path: /api
+  #     port: http
+  #   initialDelaySeconds: 30
+  
+  readinessProbe: {}
+  #   httpGet:
+  #     path: /api
+  #     port: http
+  #   initialDelaySeconds: 15
+
 # No autoscaling in dev
 autoscaling:
   enabled: false

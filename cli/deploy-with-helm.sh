@@ -64,6 +64,13 @@ echo ""
 print_blue "📦 Image tag: $IMAGE_TAG"
 echo ""
 
+# Validate environment
+if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|production)$ ]]; then
+    print_red "❌ Invalid environment: $ENVIRONMENT"
+    echo "Valid options: dev, staging, production"
+    exit 1
+fi
+
 # ========================================
 # 🔐 Step 0: Detect environment and load credentials
 # ========================================
@@ -97,7 +104,7 @@ if [ -n "$JENKINS_HOME" ]; then
     
     print_green "✅ Kubernetes connection verified"
     
-    # Load credentials from Kubernetes secrets (mounted as env vars)
+    # Load credentials from environment
     export MONGODB_USERNAME=${MONGODB_USERNAME:-admin}
     export MONGODB_PASSWORD=${MONGODB_PASSWORD:-password123}
     
@@ -234,32 +241,50 @@ fi
 echo ""
 
 # ========================================
-# 🔧 Step 3.5: Fix PVC Ownership
+# 🔧 Step 3.5: Fix PVC Ownership (THE REAL FIX)
 # ========================================
 print_blue "🔧 Step 3.5: Ensuring PVC ownership for Helm..."
 
 RELEASE_NAME="dota2-meta-lab"
 NAMESPACE="data"
 
+# Get all PVCs in the namespace
 PVCS=$(kubectl get pvc -n $NAMESPACE -o name 2>/dev/null || echo "")
 
 if [ -n "$PVCS" ]; then
+    print_yellow "Found existing PVCs - adding Helm ownership labels..."
+    
     for pvc in $PVCS; do
         PVC_NAME=$(echo $pvc | cut -d'/' -f2)
         
-        kubectl label pvc $PVC_NAME -n $NAMESPACE \
-            app.kubernetes.io/managed-by=Helm --overwrite &>/dev/null || true
+        # Check if PVC already has Helm label
+        CURRENT_OWNER=$(kubectl get pvc $PVC_NAME -n $NAMESPACE -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
         
-        kubectl annotate pvc $PVC_NAME -n $NAMESPACE \
-            meta.helm.sh/release-name=$RELEASE_NAME \
-            meta.helm.sh/release-namespace=$NAMESPACE \
-            --overwrite &>/dev/null || true
-        
-        print_green "  ✓ Fixed: $PVC_NAME"
+        if [ "$CURRENT_OWNER" != "Helm" ]; then
+            print_yellow "  Fixing ownership for: $PVC_NAME"
+            
+            # Add Helm ownership label
+            kubectl label pvc $PVC_NAME -n $NAMESPACE \
+                app.kubernetes.io/managed-by=Helm \
+                --overwrite &>/dev/null || true
+            
+            # Add Helm release annotations
+            kubectl annotate pvc $PVC_NAME -n $NAMESPACE \
+                meta.helm.sh/release-name=$RELEASE_NAME \
+                meta.helm.sh/release-namespace=$NAMESPACE \
+                --overwrite &>/dev/null || true
+            
+            print_green "    ✓ Added Helm ownership to $PVC_NAME"
+        else
+            print_green "    ✓ $PVC_NAME already managed by Helm"
+        fi
     done
+    
+    print_green "✅ All PVCs have Helm ownership"
+else
+    print_blue "  No existing PVCs found - Helm will create them"
 fi
 
-print_green "✅ All PVCs ready for Helm"
 echo ""
 
 # ========================================
@@ -307,7 +332,9 @@ if helm upgrade --install dota2-meta-lab . \
   --namespace data \
   --create-namespace \
   --values values-${ENVIRONMENT}.yaml \
-  --set image.tag=${IMAGE_TAG} \
+  --set global.imageTag=${IMAGE_TAG} \
+  --set mongodb.auth.username="$MONGODB_USERNAME" \
+  --set mongodb.auth.password="$MONGODB_PASSWORD" \
   --timeout 10m \
   --wait; then
     print_green "✅ Helm deployment successful"
@@ -318,6 +345,8 @@ else
     echo "  1. Check if values-${ENVIRONMENT}.yaml is valid"
     echo "  2. Run: helm lint . -f values-${ENVIRONMENT}.yaml"
     echo "  3. Check logs: kubectl logs -n data -l app=dota2-api"
+    echo "  4. Check pod status: kubectl get pods -n data"
+    echo "  5. Describe pod: kubectl describe pod -n data <pod-name>"
     exit 1
 fi
 
@@ -341,31 +370,49 @@ echo ""
 
 # Try to wait for common pods
 echo "Waiting for MongoDB..."
-if kubectl wait --for=condition=ready pod -l app=mongodb -n data --timeout=180s 2>/dev/null; then
+if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=mongodb -n data --timeout=180s 2>/dev/null; then
     print_green "✅ MongoDB ready"
 else
     print_yellow "⚠️  MongoDB pods not found or not ready yet"
-    kubectl get pods -n data -l app=mongodb 2>/dev/null || echo "No MongoDB pods"
+    kubectl get pods -n data -l app.kubernetes.io/name=mongodb 2>/dev/null || echo "No MongoDB pods"
 fi
 echo ""
 
 echo "Waiting for Redis..."
-if kubectl wait --for=condition=ready pod -l app=redis -n data --timeout=120s 2>/dev/null; then
+if kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=redis -n data --timeout=120s 2>/dev/null; then
     print_green "✅ Redis ready"
 else
     print_yellow "⚠️  Redis pods not found or not ready yet"
-    kubectl get pods -n data -l app=redis 2>/dev/null || echo "No Redis pods"
+    kubectl get pods -n data -l app.kubernetes.io/name=redis 2>/dev/null || echo "No Redis pods"
 fi
 echo ""
 
+# Check for API pods
+echo "Checking for API pods..."
+if kubectl get pods -n data -l app=dota2-api &>/dev/null; then
+    echo "Waiting for API..."
+    if kubectl wait --for=condition=ready pod -l app=dota2-api -n data --timeout=120s 2>/dev/null; then
+        print_green "✅ API ready"
+    else
+        print_yellow "⚠️  API not ready yet"
+    fi
+else
+    print_yellow "⚠️  No API pods found"
+fi
+echo ""
+
+# Check ml-pipeline namespace
 echo "Checking ML Pipeline namespace..."
 if kubectl get namespace ml-pipeline &> /dev/null; then
-    echo "Waiting for ML API..."
-    if kubectl wait --for=condition=ready pod -l app=ml-api -n ml-pipeline --timeout=120s 2>/dev/null; then
-        print_green "✅ ML API ready"
+    if kubectl get pods -n ml-pipeline &>/dev/null; then
+        echo "Waiting for ML API..."
+        if kubectl wait --for=condition=ready pod -l app=ml-api -n ml-pipeline --timeout=120s 2>/dev/null; then
+            print_green "✅ ML API ready"
+        else
+            print_yellow "⚠️  ML API pods not found or not ready yet"
+        fi
     else
-        print_yellow "⚠️  ML API pods not found or not ready yet"
-        kubectl get pods -n ml-pipeline -l app=ml-api 2>/dev/null || echo "No ML API pods"
+        print_yellow "⚠️  No pods in ml-pipeline namespace"
     fi
 else
     print_yellow "⚠️  ml-pipeline namespace not found (may not be needed for this environment)"
@@ -396,13 +443,36 @@ echo "=========================================="
 kubectl get svc -n data 2>/dev/null || echo "No services in data namespace"
 echo ""
 
+# Show PVCs
+echo "=========================================="
+echo "PersistentVolumeClaims in data namespace:"
+echo "=========================================="
+kubectl get pvc -n data 2>/dev/null || echo "No PVCs in data namespace"
+echo ""
+
 # Show ml-pipeline if it exists
 if kubectl get namespace ml-pipeline &> /dev/null; then
-    echo "=========================================="
-    echo "Pods in ml-pipeline namespace:"
-    echo "=========================================="
-    kubectl get pods -n ml-pipeline -o wide 2>/dev/null || echo "No pods in ml-pipeline namespace"
-    echo ""
+    if kubectl get pods -n ml-pipeline &>/dev/null; then
+        echo "=========================================="
+        echo "Pods in ml-pipeline namespace:"
+        echo "=========================================="
+        kubectl get pods -n ml-pipeline -o wide 2>/dev/null || echo "No pods in ml-pipeline namespace"
+        echo ""
+    fi
+fi
+
+# Show dev-tools if it exists (Jupyter)
+if kubectl get namespace dev-tools &> /dev/null; then
+    if kubectl get pods -n dev-tools &>/dev/null; then
+        echo "=========================================="
+        echo "Pods in dev-tools namespace:"
+        echo "=========================================="
+        kubectl get pods -n dev-tools -o wide 2>/dev/null || echo "No pods in dev-tools namespace"
+        echo ""
+        echo "Services in dev-tools namespace:"
+        kubectl get svc -n dev-tools 2>/dev/null || echo "No services in dev-tools namespace"
+        echo ""
+    fi
 fi
 
 # ========================================
@@ -417,6 +487,29 @@ echo "Environment: $ENVIRONMENT"
 echo "Image Tag: $IMAGE_TAG"
 echo "Namespace: data"
 echo ""
+
+# Show service URLs if available
+if [ "$ENVIRONMENT" = "dev" ]; then
+    echo "=========================================="
+    echo "🌐 Service URLs (if available):"
+    echo "=========================================="
+    
+    # Check for API NodePort
+    API_NODEPORT=$(kubectl get svc -n data -o jsonpath='{.items[?(@.metadata.name=="dota2-api")].spec.ports[0].nodePort}' 2>/dev/null)
+    if [ -n "$API_NODEPORT" ]; then
+        echo "  API: http://localhost:$API_NODEPORT"
+    fi
+    
+    # Check for Jupyter
+    if kubectl get svc jupyter -n dev-tools &>/dev/null; then
+        JUPYTER_NODEPORT=$(kubectl get svc jupyter -n dev-tools -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null)
+        if [ -n "$JUPYTER_NODEPORT" ]; then
+            echo "  Jupyter: http://localhost:$JUPYTER_NODEPORT"
+        fi
+    fi
+    echo ""
+fi
+
 echo "=========================================="
 echo "📝 Useful Commands:"
 echo "=========================================="
@@ -426,6 +519,7 @@ echo "  kubectl get pods -n data"
 echo ""
 echo "View logs:"
 echo "  kubectl logs -n data -l app.kubernetes.io/instance=dota2-meta-lab --tail=50"
+echo "  kubectl logs -f -n data deployment/dota2-api"
 echo ""
 echo "Describe failing pods:"
 echo "  kubectl describe pods -n data"
@@ -433,16 +527,24 @@ echo ""
 echo "Check Helm release:"
 echo "  helm list -n data"
 echo "  helm status dota2-meta-lab -n data"
+echo "  helm history dota2-meta-lab -n data"
 echo ""
 echo "Port forward services:"
-echo "  kubectl port-forward -n data svc/ml-api 8080:80"
+echo "  kubectl port-forward -n data svc/dota2-api 8080:8080"
+if kubectl get svc jupyter -n dev-tools &>/dev/null; then
+    echo "  kubectl port-forward -n dev-tools svc/jupyter 8888:8888"
+fi
 echo ""
 echo "Upgrade deployment:"
-echo "  helm upgrade dota2-meta-lab . -f values-${ENVIRONMENT}.yaml --set image.tag=NEW_TAG -n data"
+echo "  helm upgrade dota2-meta-lab ./deploy/helm -f values-${ENVIRONMENT}.yaml --set global.imageTag=NEW_TAG -n data"
 echo ""
 echo "Rollback deployment:"
 echo "  helm rollback dota2-meta-lab -n data"
 echo ""
 echo "Uninstall:"
 echo "  helm uninstall dota2-meta-lab -n data"
+echo ""
+echo "Debug pod issues:"
+echo "  kubectl exec -it -n data <pod-name> -- bash"
+echo "  kubectl logs -n data <pod-name> --previous  # View logs from crashed pod"
 echo ""

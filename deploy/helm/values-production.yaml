@@ -82,6 +82,9 @@ api:
       memory: "2Gi"
       cpu: "2"
 
+jupyter:
+  enabled: false
+
 # Autoscaling enabled
 autoscaling:
   enabled: true

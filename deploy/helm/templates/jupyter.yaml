@@ -1,0 +1,195 @@
+{{- if .Values.jupyter.enabled }}
+---
+# Create dev-tools namespace for Jupyter
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.jupyter.namespace | default "dev-tools" }}
+  labels:
+    name: {{ .Values.jupyter.namespace | default "dev-tools" }}
+    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+
+---
+# Jupyter Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.jupyter.name | default "jupyter" }}
+  namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
+  labels:
+    app: {{ .Values.jupyter.name | default "jupyter" }}
+    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.jupyter.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.jupyter.name | default "jupyter" }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.jupyter.name | default "jupyter" }}
+        {{- include "dota2-meta-lab.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.jupyter.serviceAccountName }}
+      serviceAccountName: {{ .Values.jupyter.serviceAccountName }}
+      {{- end }}
+      containers:
+      - name: jupyter
+        image: "{{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag | default .Values.global.imageTag | default "latest" }}"
+        imagePullPolicy: {{ .Values.jupyter.image.pullPolicy | default "IfNotPresent" }}
+        ports:
+        - name: http
+          containerPort: 8888
+          protocol: TCP
+        env:
+        # MongoDB connection
+        - name: MONGODB_URI
+          value: "mongodb://{{ include "dota2-meta-lab.mongodb.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local:27017/{{ .Values.mongodb.database | default "dota2_meta_lab" }}"
+        - name: MONGODB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: username
+              optional: true
+        - name: MONGODB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: password
+              optional: true
+        # Redis connection
+        - name: REDIS_HOST
+          value: "{{ include "dota2-meta-lab.redis.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local"
+        - name: REDIS_PORT
+          value: "6379"
+        # Jupyter configuration
+        - name: JUPYTER_ENABLE_LAB
+          value: "yes"
+        {{- if .Values.jupyter.env }}
+        {{- toYaml .Values.jupyter.env | nindent 8 }}
+        {{- end }}
+        {{- if .Values.jupyter.resources }}
+        resources:
+          {{- toYaml .Values.jupyter.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: notebooks
+          mountPath: /workspace/notebooks
+        - name: workspace
+          mountPath: /workspace/data
+        {{- if .Values.jupyter.volumeMounts }}
+        {{- toYaml .Values.jupyter.volumeMounts | nindent 8 }}
+        {{- end }}
+        {{- if .Values.jupyter.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.jupyter.livenessProbe | nindent 10 }}
+        {{- else }}
+        livenessProbe:
+          httpGet:
+            path: /api
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        {{- end }}
+        {{- if .Values.jupyter.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.jupyter.readinessProbe | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          httpGet:
+            path: /api
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        {{- end }}
+      volumes:
+      - name: notebooks
+        {{- if .Values.jupyter.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.jupyter.persistence.existingClaim | default "jupyter-notebooks" }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: workspace
+        emptyDir: {}
+      {{- if .Values.jupyter.volumes }}
+      {{- toYaml .Values.jupyter.volumes | nindent 6 }}
+      {{- end }}
+      {{- if .Values.jupyter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.jupyter.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.jupyter.tolerations }}
+      tolerations:
+        {{- toYaml .Values.jupyter.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.jupyter.affinity }}
+      affinity:
+        {{- toYaml .Values.jupyter.affinity | nindent 8 }}
+      {{- end }}
+
+---
+# Jupyter Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.jupyter.service.name | default "jupyter" }}
+  namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
+  labels:
+    app: {{ .Values.jupyter.name | default "jupyter" }}
+    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.jupyter.service.type | default "NodePort" }}
+  {{- if and (eq (.Values.jupyter.service.type | default "NodePort") "LoadBalancer") .Values.jupyter.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.jupyter.service.loadBalancerIP }}
+  {{- end }}
+  selector:
+    app: {{ .Values.jupyter.name | default "jupyter" }}
+  ports:
+  - name: http
+    port: {{ .Values.jupyter.service.port | default 8888 }}
+    targetPort: http
+    protocol: TCP
+    {{- if and (eq (.Values.jupyter.service.type | default "NodePort") "NodePort") .Values.jupyter.service.nodePort }}
+    nodePort: {{ .Values.jupyter.service.nodePort }}
+    {{- end }}
+
+{{- if .Values.jupyter.persistence.enabled }}
+---
+# Jupyter PersistentVolumeClaim for notebooks
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.jupyter.persistence.existingClaim | default "jupyter-notebooks" }}
+  namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
+  labels:
+    app: {{ .Values.jupyter.name | default "jupyter" }}
+    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+  {{- if .Values.jupyter.persistence.annotations }}
+  annotations:
+    {{- toYaml .Values.jupyter.persistence.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- if .Values.jupyter.persistence.accessModes }}
+    {{- toYaml .Values.jupyter.persistence.accessModes | nindent 4 }}
+    {{- else }}
+    - ReadWriteOnce
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.jupyter.persistence.size | default "1Gi" }}
+  {{- if .Values.jupyter.persistence.storageClass }}
+  {{- if (eq "-" .Values.jupyter.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.jupyter.persistence.storageClass }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- end }}
