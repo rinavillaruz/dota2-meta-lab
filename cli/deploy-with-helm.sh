@@ -293,22 +293,18 @@ echo ""
 print_blue "🔧 Step 3.6: Preparing dev-tools namespace for Helm..."
 
 if kubectl get namespace dev-tools &> /dev/null; then
-    print_yellow "Found existing dev-tools namespace - cleaning for Helm management..."
+    print_yellow "Found existing dev-tools namespace - cleaning for fresh Helm deployment..."
     
-    # Delete all resources in dev-tools (Helm will recreate them)
-    kubectl delete all --all -n dev-tools 2>/dev/null || true
+    # Delete the entire namespace and let Helm recreate it
+    kubectl delete namespace dev-tools 2>/dev/null || true
     
-    # Add Helm ownership to the namespace
-    kubectl label namespace dev-tools \
-        app.kubernetes.io/managed-by=Helm \
-        --overwrite 2>/dev/null || true
+    # Wait for namespace to be fully deleted
+    echo "Waiting for namespace deletion..."
+    while kubectl get namespace dev-tools &> /dev/null; do
+        sleep 2
+    done
     
-    kubectl annotate namespace dev-tools \
-        meta.helm.sh/release-name=dota2-meta-lab \
-        meta.helm.sh/release-namespace=data \
-        --overwrite 2>/dev/null || true
-    
-    print_green "✅ dev-tools namespace ready for Helm"
+    print_green "✅ dev-tools namespace cleaned - Helm will create it fresh"
 else
     print_blue "  dev-tools namespace doesn't exist - Helm will create it"
 fi
