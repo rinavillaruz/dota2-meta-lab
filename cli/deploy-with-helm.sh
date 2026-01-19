@@ -299,24 +299,24 @@ NAMESPACE="data"
 if kubectl get namespace dev-tools &> /dev/null; then
     print_yellow "Found existing dev-tools namespace - adding Helm ownership..."
     
-    # Check current ownership
-    CURRENT_OWNER=$(kubectl get namespace dev-tools -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
+    # Always apply the annotations (use --overwrite to ensure they're correct)
+    kubectl label namespace dev-tools \
+        app.kubernetes.io/managed-by=Helm \
+        --overwrite 2>/dev/null || true
     
-    if [ "$CURRENT_OWNER" != "Helm" ]; then
-        # Add Helm ownership label
-        kubectl label namespace dev-tools \
-            app.kubernetes.io/managed-by=Helm \
-            --overwrite &>/dev/null || true
-        
-        # Add Helm release annotations
-        kubectl annotate namespace dev-tools \
-            meta.helm.sh/release-name=$RELEASE_NAME \
-            meta.helm.sh/release-namespace=$NAMESPACE \
-            --overwrite &>/dev/null || true
-        
-        print_green "    ✓ Added Helm ownership to dev-tools namespace"
+    kubectl annotate namespace dev-tools \
+        meta.helm.sh/release-name=$RELEASE_NAME \
+        meta.helm.sh/release-namespace=$NAMESPACE \
+        --overwrite 2>/dev/null || true
+    
+    # Verify the annotations were applied
+    VERIFY_RELEASE=$(kubectl get namespace dev-tools -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}' 2>/dev/null || echo "")
+    
+    if [ "$VERIFY_RELEASE" = "$RELEASE_NAME" ]; then
+        print_green "    ✓ Helm ownership verified for dev-tools namespace"
     else
-        print_green "    ✓ dev-tools namespace already managed by Helm"
+        print_red "    ✗ Failed to add Helm ownership to dev-tools namespace"
+        kubectl get namespace dev-tools -o yaml | grep -A 10 metadata
     fi
 else
     print_blue "  dev-tools namespace doesn't exist - Helm will create it"
