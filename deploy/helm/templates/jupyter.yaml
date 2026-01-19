@@ -7,7 +7,7 @@ metadata:
   name: {{ .Values.jupyter.namespace | default "dev-tools" }}
   labels:
     name: {{ .Values.jupyter.namespace | default "dev-tools" }}
-    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+    {{- include "helm.labels" . | nindent 4 }}
 
 ---
 # Jupyter Deployment
@@ -18,7 +18,7 @@ metadata:
   namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
   labels:
     app: {{ .Values.jupyter.name | default "jupyter" }}
-    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+    {{- include "helm.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.jupyter.replicas | default 1 }}
   selector:
@@ -28,7 +28,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.jupyter.name | default "jupyter" }}
-        {{- include "dota2-meta-lab.selectorLabels" . | nindent 8 }}
+        {{- include "helm.selectorLabels" . | nindent 8 }}
     spec:
       {{- if .Values.jupyter.serviceAccountName }}
       serviceAccountName: {{ .Values.jupyter.serviceAccountName }}
@@ -44,7 +44,7 @@ spec:
         env:
         # MongoDB connection
         - name: MONGODB_URI
-          value: "mongodb://{{ include "dota2-meta-lab.mongodb.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local:27017/{{ .Values.mongodb.database | default "dota2_meta_lab" }}"
+          value: "mongodb://{{ include "helm.mongodb.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local:27017/{{ .Values.mongodb.database | default "dota2_meta_lab" }}"
         - name: MONGODB_USERNAME
           valueFrom:
             secretKeyRef:
@@ -59,7 +59,7 @@ spec:
               optional: true
         # Redis connection
         - name: REDIS_HOST
-          value: "{{ include "dota2-meta-lab.redis.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local"
+          value: "{{ include "helm.redis.fullname" . }}.{{ .Values.global.namespace }}.svc.cluster.local"
         - name: REDIS_PORT
           value: "6379"
         # Jupyter configuration
@@ -141,7 +141,7 @@ metadata:
   namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
   labels:
     app: {{ .Values.jupyter.name | default "jupyter" }}
-    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+    {{- include "helm.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.jupyter.service.type | default "NodePort" }}
   {{- if and (eq (.Values.jupyter.service.type | default "NodePort") "LoadBalancer") .Values.jupyter.service.loadBalancerIP }}
@@ -168,7 +168,7 @@ metadata:
   namespace: {{ .Values.jupyter.namespace | default "dev-tools" }}
   labels:
     app: {{ .Values.jupyter.name | default "jupyter" }}
-    {{- include "dota2-meta-lab.labels" . | nindent 4 }}
+    {{- include "helm.labels" . | nindent 4 }}
   {{- if .Values.jupyter.persistence.annotations }}
   annotations:
     {{- toYaml .Values.jupyter.persistence.annotations | nindent 4 }}

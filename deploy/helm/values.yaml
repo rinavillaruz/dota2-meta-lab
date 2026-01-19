@@ -1,27 +1,38 @@
 # Default values for dota2-meta-lab
+# This is a base configuration file that can be overridden by environment-specific files
 
-# Global settings
+# ==============================================================================
+# GLOBAL SETTINGS
+# ==============================================================================
 global:
   namespace: data
+  imageTag: latest
 
-# Storage settings - DO NOT CREATE StorageClass
+# ==============================================================================
+# STORAGE SETTINGS
+# ==============================================================================
 storage:
-  createStorageClass: true   # Change to true to create StorageClass
+  createStorageClass: true
   storageClassName: standard
 
-# Image settings
+# ==============================================================================
+# IMAGE SETTINGS
+# ==============================================================================
 image:
   registry: docker.io
   repository: rinavillaruz
   tag: latest
   pullPolicy: IfNotPresent
 
-# MongoDB
+# ==============================================================================
+# MONGODB
+# ==============================================================================
 mongodb:
   enabled: true
   replicas: 1
   image: mongo:7.0
   port: 27017
+  database: dota2_meta_lab
   persistence:
     enabled: true
     size: 5Gi
@@ -35,7 +46,9 @@ mongodb:
   secret:
     name: mongodb-secret
 
-# Redis
+# ==============================================================================
+# REDIS
+# ==============================================================================
 redis:
   enabled: true
   replicas: 1
@@ -52,7 +65,9 @@ redis:
       memory: "256Mi"
       cpu: "100m"
 
-# Data Fetcher
+# ==============================================================================
+# DATA FETCHER
+# ==============================================================================
 dataFetcher:
   enabled: true
   replicas: 1
@@ -65,7 +80,9 @@ dataFetcher:
       memory: "512Mi"
       cpu: "250m"
 
-# ML Trainer
+# ==============================================================================
+# ML TRAINER
+# ==============================================================================
 mlTrainer:
   enabled: true
   replicas: 1
@@ -81,7 +98,9 @@ mlTrainer:
       memory: "1Gi"
       cpu: "500m"
 
-# API Service
+# ==============================================================================
+# API SERVICE
+# ==============================================================================
 api:
   enabled: true
   replicas: 1
@@ -95,19 +114,66 @@ api:
       memory: "512Mi"
       cpu: "250m"
 
-# Autoscaling
+# ==============================================================================
+# JUPYTER NOTEBOOK (Disabled by default - enable in environment files)
+# ==============================================================================
+jupyter:
+  enabled: false
+  name: jupyter
+  namespace: dev-tools
+  replicas: 1
+  
+  image:
+    repository: rinavillaruz/dota2-jupyter
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    name: jupyter
+    type: NodePort
+    port: 8888
+    nodePort: 30888
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  persistence:
+    enabled: false
+    size: 1Gi
+  
+  env: []
+  volumeMounts: []
+  volumes: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  livenessProbe: {}
+  readinessProbe: {}
+
+# ==============================================================================
+# AUTOSCALING
+# ==============================================================================
 autoscaling:
   enabled: false
   minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
-# Service Account
+# ==============================================================================
+# SERVICE ACCOUNT
+# ==============================================================================
 serviceAccount:
   create: true
   name: ""
 
-# Pod settings
+# ==============================================================================
+# POD SETTINGS
+# ==============================================================================
 podAnnotations: {}
 podSecurityContext: {}
 securityContext: {}

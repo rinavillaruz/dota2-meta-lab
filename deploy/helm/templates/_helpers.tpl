@@ -60,3 +60,17 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+MongoDB fullname
+*/}}
+{{- define "helm.mongodb.fullname" -}}
+{{- printf "mongodb" }}
+{{- end }}
+
+{{/*
+Redis fullname
+*/}}
+{{- define "helm.redis.fullname" -}}
+{{- printf "redis" }}
+{{- end }}
