@@ -295,16 +295,24 @@ print_blue "🔧 Step 3.6: Preparing dev-tools namespace for Helm..."
 if kubectl get namespace dev-tools &> /dev/null; then
     print_yellow "Found existing dev-tools namespace - cleaning for fresh Helm deployment..."
     
-    # Delete the entire namespace and let Helm recreate it
-    kubectl delete namespace dev-tools 2>/dev/null || true
+    # Delete all resources first
+    kubectl delete all --all -n dev-tools --grace-period=0 --force 2>/dev/null || true
     
-    # Wait for namespace to be fully deleted
-    echo "Waiting for namespace deletion..."
-    while kubectl get namespace dev-tools &> /dev/null; do
+    # Delete the namespace with timeout
+    kubectl delete namespace dev-tools --timeout=30s 2>/dev/null || {
+        print_yellow "Namespace deletion timed out, force removing finalizers..."
+        kubectl patch namespace dev-tools -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+    }
+    
+    # Wait briefly for deletion (max 10 seconds)
+    for i in {1..5}; do
+        if ! kubectl get namespace dev-tools &> /dev/null; then
+            break
+        fi
         sleep 2
     done
     
-    print_green "✅ dev-tools namespace cleaned - Helm will create it fresh"
+    print_green "✅ dev-tools namespace cleaned"
 else
     print_blue "  dev-tools namespace doesn't exist - Helm will create it"
 fi
