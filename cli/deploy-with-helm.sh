@@ -288,41 +288,31 @@ fi
 echo ""
 
 # ========================================
-# 🔧 Step 3.6: Fix Namespace Ownership for Helm
+# 🔧 Step 3.6: Clean dev-tools namespace for Helm
 # ========================================
-print_blue "🔧 Step 3.6: Ensuring namespace ownership for Helm..."
+print_blue "🔧 Step 3.6: Preparing dev-tools namespace for Helm..."
 
-RELEASE_NAME="dota2-meta-lab"
-NAMESPACE="data"
-
-# Check if dev-tools namespace exists
 if kubectl get namespace dev-tools &> /dev/null; then
-    print_yellow "Found existing dev-tools namespace - adding Helm ownership..."
+    print_yellow "Found existing dev-tools namespace - cleaning for Helm management..."
     
-    # Always apply the annotations (use --overwrite to ensure they're correct)
+    # Delete all resources in dev-tools (Helm will recreate them)
+    kubectl delete all --all -n dev-tools 2>/dev/null || true
+    
+    # Add Helm ownership to the namespace
     kubectl label namespace dev-tools \
         app.kubernetes.io/managed-by=Helm \
         --overwrite 2>/dev/null || true
     
     kubectl annotate namespace dev-tools \
-        meta.helm.sh/release-name=$RELEASE_NAME \
-        meta.helm.sh/release-namespace=$NAMESPACE \
+        meta.helm.sh/release-name=dota2-meta-lab \
+        meta.helm.sh/release-namespace=data \
         --overwrite 2>/dev/null || true
     
-    # Verify the annotations were applied
-    VERIFY_RELEASE=$(kubectl get namespace dev-tools -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}' 2>/dev/null || echo "")
-    
-    if [ "$VERIFY_RELEASE" = "$RELEASE_NAME" ]; then
-        print_green "    ✓ Helm ownership verified for dev-tools namespace"
-    else
-        print_red "    ✗ Failed to add Helm ownership to dev-tools namespace"
-        kubectl get namespace dev-tools -o yaml | grep -A 10 metadata
-    fi
+    print_green "✅ dev-tools namespace ready for Helm"
 else
     print_blue "  dev-tools namespace doesn't exist - Helm will create it"
 fi
 
-print_green "✅ Namespace ownership configured"
 echo ""
 
 # ========================================
