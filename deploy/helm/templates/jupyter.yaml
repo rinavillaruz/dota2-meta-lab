@@ -1,15 +1,5 @@
 {{- if .Values.jupyter.enabled }}
 ---
-# Create dev-tools namespace for Jupyter
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ .Values.jupyter.namespace | default "dev-tools" }}
-  labels:
-    name: {{ .Values.jupyter.namespace | default "dev-tools" }}
-    {{- include "helm.labels" . | nindent 4 }}
-
----
 # Jupyter Deployment
 apiVersion: apps/v1
 kind: Deployment
