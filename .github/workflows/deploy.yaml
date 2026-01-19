@@ -3,9 +3,11 @@ name: Deploy to Environment
 on:
   push:
     branches:
-      - main
       - dev
       - staging
+    # Explicitly exclude main - Jenkins handles it
+    # branches-ignore:
+    #   - main
 
 jobs:
   deploy:
@@ -20,9 +22,7 @@ jobs:
         run: |
           BRANCH=${GITHUB_REF#refs/heads/}
           
-          if [[ "$BRANCH" == "main" ]]; then
-            echo "environment=production" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH" == "staging" ]]; then
+          if [[ "$BRANCH" == "staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
@@ -47,8 +47,8 @@ jobs:
           target: data-fetcher
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -60,8 +60,8 @@ jobs:
           target: trainer
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -73,8 +73,8 @@ jobs:
           target: api
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -92,7 +92,7 @@ jobs:
       - name: Deploy with Helm
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
-          IMAGE_TAG: ${{ github.run_number }}-${{ github.sha }}
+          IMAGE_TAG: ${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
         run: |
           # Install Helm
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -110,7 +110,7 @@ jobs:
           STATUS="${{ job.status }}"
           ENV="${{ steps.env.outputs.environment }}"
           BRANCH="${{ steps.env.outputs.branch }}"
-          TAG="${{ github.run_number }}-${{ github.sha }}"
+          TAG="${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}"
           
           if [ "$STATUS" = "success" ]; then
             COLOR="good"

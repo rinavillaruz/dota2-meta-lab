@@ -1,18 +1,5 @@
 pipeline {
     agent any
-    
-    parameters {
-        choice(
-            name: 'ENVIRONMENT',
-            choices: ['dev', 'staging', 'production'],
-            description: 'Which environment to deploy to?'
-        )
-        booleanParam(
-            name: 'RUN_TESTS',
-            defaultValue: false,
-            description: 'Run tests? (Adds ~3s)'
-        )
-    }
 
     environment {
         // Read Docker credentials from mounted secret files
@@ -26,21 +13,20 @@ pipeline {
         
         // Slack webhook from mounted secret
         SLACK_WEBHOOK       = readFile('/run/secrets/slack/webhook-url').trim()
+        
+        // Fixed to production environment (main branch only)
+        DEPLOY_ENV          = "production"
+    }
+    
+    // Only trigger on main branch
+    triggers {
+        githubPush()
     }
     
     stages {
         stage('Initialize') {
             steps {
                 script {
-                    // Use parameter if provided, otherwise auto-detect from branch
-                    if (params.ENVIRONMENT) {
-                        env.DEPLOY_ENV = params.ENVIRONMENT
-                        echo "📝 Using parameter environment: ${params.ENVIRONMENT}"
-                    } else {
-                        env.DEPLOY_ENV = determineEnvironment()
-                        echo "🔍 Auto-detected environment from branch: ${env.DEPLOY_ENV}"
-                    }
-                    
                     env.GIT_AUTHOR = sh(script: "git log -1 --pretty=format:'%an'", returnStdout: true).trim()
                     env.GIT_COMMIT_MSG = sh(script: "git log -1 --pretty=format:'%s'", returnStdout: true).trim()
                     
@@ -76,11 +62,6 @@ pipeline {
         }
         
         stage('Test') {
-            when {
-                expression { 
-                    params.RUN_TESTS == true || env.GIT_BRANCH == 'origin/main' 
-                }
-            }
             steps {
                 echo '🧪 Running tests...'
                 sh '''
@@ -163,79 +144,61 @@ pipeline {
             steps {
                 echo '📤 Pushing images to Docker Hub...'
                 script {
-                    def pushLatest = (env.DEPLOY_ENV == 'production')
-                    
-                    // Tag with :latest if production
-                    if (pushLatest) {
-                        sh """
-                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
-                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
-                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
-                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
-                            docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
-                                ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
-                        """
-                    }
+                    // Always tag with :latest for main branch
+                    sh """
+                        docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG} \
+                            ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
+                        docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG} \
+                            ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
+                        docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG} \
+                            ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
+                    """
                     
                     parallel(
                         'push-fetcher': {
                             sh """
                                 docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
                             """
-                            if (pushLatest) {
-                                sh """
-                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-fetcher:latest
-                                """
-                            }
                         },
                         'push-trainer': {
                             sh """
                                 docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
                             """
-                            if (pushLatest) {
-                                sh """
-                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-trainer:latest
-                                """
-                            }
                         },
                         'push-api': {
                             sh """
                                 docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
                             """
-                            if (pushLatest) {
-                                sh """
-                                    docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_PREFIX}/dota2-api:latest
-                                """
-                            }
                         }
                     )
                     
-                    echo pushLatest ? '📦 Pushed versioned + :latest tags' : '📦 Pushed versioned tags only'
+                    echo '📦 Pushed versioned + :latest tags'
                 }
             }
         }
         
-        stage('Deploy to Environment') {
+        stage('Deploy to Production') {
             steps {
                 script {
-                    echo "🚀 Deploying to ${env.DEPLOY_ENV}..."
+                    echo "🚀 Deploying to production..."
                     
                     sendSlackNotification(
-                        "🚀 Deploying to ${env.DEPLOY_ENV}...",
+                        "🚀 Deploying to production...",
                         "Image: `${IMAGE_TAG}`",
                         "#FFA500"
                     )
 
-                    if (env.DEPLOY_ENV == 'production') {
-                        timeout(time: 30, unit: 'MINUTES') {
-                            input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
-                        }
+                    timeout(time: 30, unit: 'MINUTES') {
+                        input message: '⚠️  Deploy to PRODUCTION?', ok: 'Deploy'
                     }
                     
                     sh """
                         cd cli
                         chmod +x deploy-with-helm.sh
-                        ./deploy-with-helm.sh ${env.DEPLOY_ENV} ${IMAGE_TAG}
+                        ./deploy-with-helm.sh production ${IMAGE_TAG}
                     """
                 }
             }
@@ -307,21 +270,6 @@ pipeline {
                 )
             }
         }
-    }
-}
-
-// Helper function to determine environment from branch
-def determineEnvironment() {
-    def branch = env.GIT_BRANCH ?: 'unknown'
-    
-    if (branch.contains('main')) {
-        return 'production'
-    } else if (branch.contains('staging')) {
-        return 'staging'
-    } else if (branch.contains('dev') || branch.contains('develop')) {
-        return 'dev'
-    } else {
-        return 'dev'
     }
 }
 
