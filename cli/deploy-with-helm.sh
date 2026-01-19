@@ -288,35 +288,28 @@ fi
 echo ""
 
 # ========================================
-# 🔧 Step 3.6: Clean dev-tools namespace for Helm
+# 🔧 Step 3.6: Prepare dev-tools namespace with Helm ownership
 # ========================================
 print_blue "🔧 Step 3.6: Preparing dev-tools namespace for Helm..."
 
-if kubectl get namespace dev-tools &> /dev/null; then
-    print_yellow "Found existing dev-tools namespace - cleaning for fresh Helm deployment..."
-    
-    # Delete all resources first
-    kubectl delete all --all -n dev-tools --grace-period=0 --force 2>/dev/null || true
-    
-    # Delete the namespace with timeout
-    kubectl delete namespace dev-tools --timeout=30s 2>/dev/null || {
-        print_yellow "Namespace deletion timed out, force removing finalizers..."
-        kubectl patch namespace dev-tools -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
-    }
-    
-    # Wait briefly for deletion (max 10 seconds)
-    for i in {1..5}; do
-        if ! kubectl get namespace dev-tools &> /dev/null; then
-            break
-        fi
-        sleep 2
-    done
-    
-    print_green "✅ dev-tools namespace cleaned"
-else
-    print_blue "  dev-tools namespace doesn't exist - Helm will create it"
-fi
+RELEASE_NAME="dota2-meta-lab"
+NAMESPACE="data"
 
+# Create dev-tools namespace with Helm ownership from the start
+kubectl create namespace dev-tools --dry-run=client -o yaml | \
+  kubectl apply -f - 2>/dev/null || true
+
+# Add Helm ownership metadata
+kubectl label namespace dev-tools \
+    app.kubernetes.io/managed-by=Helm \
+    --overwrite 2>/dev/null || true
+
+kubectl annotate namespace dev-tools \
+    meta.helm.sh/release-name=$RELEASE_NAME \
+    meta.helm.sh/release-namespace=$NAMESPACE \
+    --overwrite 2>/dev/null || true
+
+print_green "✅ dev-tools namespace ready with Helm ownership"
 echo ""
 
 # ========================================
