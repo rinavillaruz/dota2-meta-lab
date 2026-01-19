@@ -288,6 +288,44 @@ fi
 echo ""
 
 # ========================================
+# 🔧 Step 3.6: Fix Namespace Ownership for Helm
+# ========================================
+print_blue "🔧 Step 3.6: Ensuring namespace ownership for Helm..."
+
+RELEASE_NAME="dota2-meta-lab"
+NAMESPACE="data"
+
+# Check if dev-tools namespace exists
+if kubectl get namespace dev-tools &> /dev/null; then
+    print_yellow "Found existing dev-tools namespace - adding Helm ownership..."
+    
+    # Check current ownership
+    CURRENT_OWNER=$(kubectl get namespace dev-tools -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
+    
+    if [ "$CURRENT_OWNER" != "Helm" ]; then
+        # Add Helm ownership label
+        kubectl label namespace dev-tools \
+            app.kubernetes.io/managed-by=Helm \
+            --overwrite &>/dev/null || true
+        
+        # Add Helm release annotations
+        kubectl annotate namespace dev-tools \
+            meta.helm.sh/release-name=$RELEASE_NAME \
+            meta.helm.sh/release-namespace=$NAMESPACE \
+            --overwrite &>/dev/null || true
+        
+        print_green "    ✓ Added Helm ownership to dev-tools namespace"
+    else
+        print_green "    ✓ dev-tools namespace already managed by Helm"
+    fi
+else
+    print_blue "  dev-tools namespace doesn't exist - Helm will create it"
+fi
+
+print_green "✅ Namespace ownership configured"
+echo ""
+
+# ========================================
 # 🎡 Step 4: Deploy with Helm
 # ========================================
 print_blue "🎡 Step 4: Deploying with Helm..."
