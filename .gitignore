@@ -71,6 +71,9 @@ coverage.xml
 *.kubeconfig
 kubeconfig
 !kubeconfig.example
+# Kubeconfig files (in case they're created elsewhere)
+*kubeconfig*.yaml
+github-actions-kubeconfig.yaml
 
 # Secrets & Credentials
 .env
@@ -122,3 +125,10 @@ build/
 *.sql
 *.sqlite
 *.db
+
+# Configuration files with secrets - NEVER COMMIT
+config/
+
+# ngrok
+.ngrok2/
+ngrok.yml

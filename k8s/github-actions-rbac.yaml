@@ -1,0 +1,31 @@
+---
+# Create a service account for GitHub Actions
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-actions
+  namespace: kube-system
+---
+# Give the service account admin permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: github-actions-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: github-actions
+  namespace: kube-system
+---
+# Create a token secret for the service account
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-actions-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: github-actions
+type: kubernetes.io/service-account-token
