@@ -150,12 +150,13 @@ jobs:
             EXTRA_FIELDS=",{\"title\": \"📋 Logs\", \"value\": \"<$RUN_URL|View Failure Logs>\", \"short\": false}"
           fi
           
-          # Build monitoring dashboard URL (customize this to your actual monitoring)
-          MONITORING_URL="http://localhost:30000/d/dota2-$ENV"  # Example Grafana dashboard
+          # Monitoring URL (customize to your setup)
+          MONITORING_URL="http://localhost:30000/d/dota2-$ENV"
           
           curl -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
             -H 'Content-Type: application/json' \
             -d "{
+              \"channel\": \"#github-deployments\",
               \"username\": \"GitHub Actions\",
               \"icon_emoji\": \":github:\",
               \"attachments\": [{

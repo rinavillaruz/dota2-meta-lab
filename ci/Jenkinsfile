@@ -278,6 +278,9 @@ def sendSlackNotification(String title, String message, String color) {
     script {
         try {
             def payload = groovy.json.JsonOutput.toJson([
+                channel: "#jenkins-builds",
+                username: "Jenkins CI/CD",
+                icon_url: "https://jenkins.io/images/logos/jenkins/jenkins.png",
                 attachments: [[
                     color: color,
                     title: title,
