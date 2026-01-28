@@ -1,4 +1,36 @@
-# Python
+# =============================================================================
+# SECURITY-SENSITIVE FILES - NEVER COMMIT
+# =============================================================================
+
+# Configuration Directory (Contains kubeconfig, secrets, and sensitive settings)
+config/
+!config/.gitkeep
+
+# Kubernetes Configuration (Additional protection for files outside config/)
+*.kubeconfig
+*kubeconfig*.yaml
+kubeconfig
+.kube/config
+!kubeconfig.example
+
+# Secrets & Credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+secrets/
+*.pem
+*.key
+*.crt
+credentials.json
+token.json
+*-credentials.txt
+argocd-connection-info.txt
+jenkins-admin-credentials.txt
+
+# =============================================================================
+# PYTHON
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -10,12 +42,20 @@ ENV/
 .venv
 pip-log.txt
 pip-delete-this-directory.txt
-build/
-dist/
 *.egg-info/
 .eggs/
 
-# IDEs
+# =============================================================================
+# BUILD ARTIFACTS
+# =============================================================================
+build/
+dist/
+*.tar.gz
+*.zip
+
+# =============================================================================
+# IDEs & EDITORS
+# =============================================================================
 .vscode/
 .idea/
 *.swp
@@ -24,7 +64,9 @@ dist/
 *.sublime-project
 *.sublime-workspace
 
-# OS
+# =============================================================================
+# OPERATING SYSTEMS
+# =============================================================================
 .DS_Store
 Thumbs.db
 .DS_Store?
@@ -32,17 +74,23 @@ Thumbs.db
 .Spotlight-V100
 .Trashes
 
-# Data
+# =============================================================================
+# DATA FILES
+# =============================================================================
 /data/
 data/opendota_*/
 *.csv
 *.json
 !deploy/helm/**/*.json
-!.env.example  # Allow .env.example to be committed
+!.env.example
+!package.json
+!tsconfig.json
 *.parquet
 *.feather
 
-# Models
+# =============================================================================
+# MACHINE LEARNING MODELS
+# =============================================================================
 models/*.h5
 models/*.pkl
 *.ckpt
@@ -50,8 +98,12 @@ models/*.pkl
 *.pth
 *.onnx
 *.pb
+mlruns/
+mlflow-artifacts/
 
-# Logs
+# =============================================================================
+# LOGS & MONITORING
+# =============================================================================
 logs/
 *.log
 *.log.*
@@ -59,78 +111,88 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Testing
+# =============================================================================
+# TESTING & COVERAGE
+# =============================================================================
 .pytest_cache/
 .coverage
 htmlcov/
 coverage.xml
 *.cover
 .tox/
+/tests/
 
-# Kubernetes
-*.kubeconfig
-kubeconfig
-!kubeconfig.example
-# Kubeconfig files (in case they're created elsewhere)
-*kubeconfig*.yaml
-github-actions-kubeconfig.yaml
-
-# Secrets & Credentials
-.env
-.env.local
-.env.*.local
-!.env.example  # Keep the template
-secrets/
-*.pem
-*.key
-credentials.json
-token.json
-*-credentials.txt
-argocd-connection-info.txt
-jenkins-admin-credentials.txt
-
-# Docker
+# =============================================================================
+# DOCKER
+# =============================================================================
 .docker/
 docker-compose.override.yml
 
-# Node (if using any JS/React)
+# =============================================================================
+# NODE.JS (if using frontend/tools)
+# =============================================================================
 node_modules/
 package-lock.json
 yarn.lock
 
-# Jupyter
+# =============================================================================
+# JUPYTER NOTEBOOKS
+# =============================================================================
 .ipynb_checkpoints/
 *.ipynb_checkpoints/
 
-# Temporary files
+# =============================================================================
+# DATABASES
+# =============================================================================
+*.sql
+*.sqlite
+*.db
+*.dump
+
+# =============================================================================
+# TEMPORARY FILES
+# =============================================================================
 /tmp/
 temp/
 *.tmp
 *.bak
 *.backup
 
-# Tests
-/tests/
+# =============================================================================
+# DEVELOPMENT TOOLS
+# =============================================================================
 
-# CLI
+# CLI Scripts
 /cli/manual.sh
-
-# Build artifacts
-*.tar.gz
-*.zip
-dist/
-build/
-
-# Database dumps
-*.sql
-*.sqlite
-*.db
-
-# Configuration files with secrets - NEVER COMMIT
-config/
 
 # ngrok
 .ngrok2/
 ngrok.yml
 
+# GitHub Actions Runner
 actions-runner/
+_work/
+
+# Helm temporary files
+*.tgz
+charts/*.tgz
+
+# Terraform (if you add infrastructure as code later)
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Ansible (if you add config management)
+*.retry
+.ansible/
+
+# =============================================================================
+# PROJECT-SPECIFIC EXCEPTIONS
+# =============================================================================
+
+# Allow example/template files
+!.env.example
+!kubeconfig.example
+!secrets.example.yaml
+!config.example.yaml
