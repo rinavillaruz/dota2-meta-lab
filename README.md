@@ -428,39 +428,107 @@ Once deployed, API documentation is available at:
 
 ```
 dota2-meta-lab/
-├── .github/
-│   └── workflows/
-│       └── deploy.yaml              # GitHub Actions CI/CD
-├── build/
-│   ├── Dockerfile.dev               # Multi-stage Dockerfile
-│   ├── requirements.txt             # Python dependencies
-│   └── requirements-dev.txt         # Dev dependencies
-├── deploy/
-│   └── helm/
-│       ├── Chart.yaml               # Helm chart metadata
-│       ├── values.yaml              # Default values
-│       ├── values-dev.yaml          # Dev overrides
-│       ├── values-staging.yaml      # Staging overrides
-│       ├── values-production.yaml   # Production overrides
-│       └── templates/               # Kubernetes manifests
-│           ├── api-deployment.yaml
-│           ├── fetcher-deployment.yaml
-│           ├── trainer-job.yaml
-│           ├── mongodb-statefulset.yaml
-│           ├── redis-deployment.yaml
-│           └── ...
-├── src/
-│   ├── api/                         # FastAPI application
-│   ├── data_fetcher/                # Data ingestion
-│   ├── trainer/                     # ML training pipeline
-│   └── common/                      # Shared utilities
-├── tests/
-│   ├── unit/                        # Unit tests
-│   └── integration/                 # Integration tests
-├── infra/
-│   └── kind-config.yaml             # Kind cluster config
-├── Jenkinsfile                       # Jenkins pipeline
-└── README.md                         # This file
+│
+├── 📂 argocd-apps/              # ArgoCD Application manifests for GitOps
+│   ├── dota2-dev.yaml           # Dev environment ArgoCD app
+│   ├── dota2-staging.yaml       # Staging environment ArgoCD app
+│   └── dota2-prod.yaml          # Production environment ArgoCD app
+│
+├── 📂 build/                    # Docker build context and dependencies
+│   ├── Dockerfile               # Production multi-stage Dockerfile
+│   ├── Dockerfile.dev           # Development optimized Dockerfile
+│   ├── Dockerfile.jupyter       # Jupyter notebook environment
+│   ├── requirements.txt         # Python production dependencies
+│   └── .dockerignore           # Docker build exclusions
+│
+├── 📂 ci/                       # Continuous Integration configuration
+│   └── Jenkinsfile             # Jenkins pipeline definition (production)
+│
+├── 📂 cli/                      # Command-line automation scripts
+│   ├── setup-complete-cicd.sh  # Complete CI/CD infrastructure setup
+│   ├── install-jenkins.sh      # Jenkins installation to K8s
+│   ├── install-argocd.sh       # ArgoCD installation to K8s
+│   ├── uninstall-argocd.sh     # ArgoCD cleanup
+│   ├── argocd-login.sh         # ArgoCD authentication helper
+│   ├── deploy-with-helm.sh     # Direct Helm deployment
+│   ├── deploy-with-argocd.sh   # GitOps deployment via ArgoCD
+│   ├── setup-secrets.sh        # Kubernetes secrets provisioning
+│   ├── destroy-cluster.sh      # Cluster teardown and cleanup
+│   └── debug.sh                # Troubleshooting utilities
+│
+├── 📂 deploy/                   # Deployment configurations
+│   └── helm/                   # Helm chart for Kubernetes deployment
+│       ├── Chart.yaml          # Helm chart metadata
+│       ├── values.yaml         # Default configuration values
+│       ├── values-dev.yaml     # Development overrides
+│       ├── values-staging.yaml # Staging overrides
+│       ├── values-production.yaml # Production overrides
+│       ├── .helmignore         # Helm packaging exclusions
+│       │
+│       └── templates/          # Kubernetes resource templates
+│           ├── _helpers.tpl               # Template helper functions
+│           ├── storage-class.yaml         # Dynamic storage provisioner
+│           ├── pvc-models.yaml            # Persistent volume for ML models
+│           ├── pvc-ml-training.yaml       # Training data storage
+│           ├── mongodb-statefulset.yaml   # MongoDB database cluster
+│           ├── mongodb-service.yaml       # MongoDB service endpoint
+│           ├── redis-deployment.yaml      # Redis cache deployment
+│           ├── redis-service.yaml         # Redis service endpoint
+│           ├── ml-api-deployment.yaml     # FastAPI inference service
+│           ├── ml-api-service.yaml        # API service endpoint
+│           ├── ml-training-job.yaml       # Kubernetes Job for ML training
+│           └── jupyter.yaml               # Jupyter notebook for analysis
+│
+├── 📂 jenkins-k8s/              # Jenkins Kubernetes deployment (Kustomize)
+│   ├── Dockerfile              # Custom Jenkins image with plugins
+│   ├── base/                   # Base Kustomize configuration
+│   │   ├── 00-namespace.yaml         # Jenkins namespace
+│   │   ├── 01-serviceaccount.yaml    # Jenkins service account
+│   │   ├── 02-clusterrole.yaml       # Jenkins permissions
+│   │   ├── 03-clusterrolebinding.yaml # Role binding
+│   │   ├── 04-pvc.yaml               # Jenkins data persistence
+│   │   ├── 05-configmap.yaml         # Jenkins configuration
+│   │   ├── 06-deployment.yaml        # Jenkins controller
+│   │   ├── 07-rbac.yaml              # Additional RBAC rules
+│   │   ├── 08-service.yaml           # Jenkins service
+│   │   └── 08-init-configmap.yaml    # Jenkins initialization
+│   │
+│   └── overlays/               # Environment-specific customizations
+│       └── dev/                # Development overlay
+│
+├── 📂 k8s/                      # Kubernetes cluster configurations
+│   ├── ha/                     # High-availability cluster config
+│   │   └── kind-ha-cluster.yaml     # Kind HA cluster definition
+│   │
+│   └── dev-tools/              # Development utilities
+│       └── jupyter.yaml        # Standalone Jupyter deployment
+│
+├── 📂 scripts/                  # Python data pipeline scripts
+│   ├── fetch_data.py           # Dota 2 API data fetcher
+│   ├── analyze_data.py         # Data analysis and preprocessing
+│   ├── train_model.py          # ML model training script
+│   └── store_database.py       # Database storage utilities
+│
+├── 📂 src/                      # Application source code
+│   ├── api/                    # FastAPI REST API
+│   │   ├── __init__.py
+│   │   └── app.py              # FastAPI application entry point
+│   │
+│   ├── data/                   # Data ingestion modules
+│   │   ├── __init__.py
+│   │   ├── data_loader.py      # Data loading utilities
+│   │   └── open_dota_fetcher.py # OpenDota API client
+│   │
+│   ├── models/                 # Machine learning models
+│   │   ├── __init__.py
+│   │   ├── dota2_model.py      # ML model implementation
+│   │   └── feature_engineering.py # Feature extraction
+│   │
+│   └── utils/                  # Shared utilities
+│       ├── config.py           # Configuration management
+│       └── logger.py           # Logging utilities
+│
+└── 📄 README.md                 # Project documentation
 ```
 
 ---
