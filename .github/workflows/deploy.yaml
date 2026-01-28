@@ -74,11 +74,17 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           IMAGE_TAG: ${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
         run: |
-          # Helm is already installed on your Mac
+          # Use environment-specific namespace
+          if [[ "$ENVIRONMENT" == "production" ]]; then
+            NAMESPACE="data"
+          else
+            NAMESPACE="data-$ENVIRONMENT"
+          fi
+          
           helm upgrade --install dota2-meta-lab-$ENVIRONMENT ./deploy/helm \
             -f ./deploy/helm/values-$ENVIRONMENT.yaml \
             --set image.tag=$IMAGE_TAG \
-            -n data \
+            -n $NAMESPACE \
             --create-namespace
       
       - name: Send Slack notification
