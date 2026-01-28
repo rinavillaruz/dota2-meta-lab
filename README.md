@@ -577,7 +577,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - 🐛 **Bug Reports:** [GitHub Issues](https://github.com/rinavillaruz/dota2-meta-lab/issues)
 - 💬 **Discussions:** [GitHub Discussions](https://github.com/rinavillaruz/dota2-meta-lab/discussions)
-- 📧 **Contact:** [Your Email]
 
 ---
 
