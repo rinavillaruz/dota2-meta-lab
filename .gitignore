@@ -132,3 +132,5 @@ config/
 # ngrok
 .ngrok2/
 ngrok.yml
+
+actions-runner/
