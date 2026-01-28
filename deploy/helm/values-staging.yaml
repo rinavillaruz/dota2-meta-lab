@@ -1,7 +1,7 @@
 # Staging environment overrides
 
 global:
-  namespace: data
+  namespace: data-staging
 
 storage:
   createStorageClass: false

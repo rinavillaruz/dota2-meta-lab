@@ -120,7 +120,7 @@ api:
 jupyter:
   enabled: false
   name: jupyter
-  namespace: dev-tools
+  namespace: data
   replicas: 1
   
   image:

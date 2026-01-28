@@ -5,7 +5,7 @@
 # GLOBAL SETTINGS
 # ==============================================================================
 global:
-  namespace: data
+  namespace: data-dev
   imageTag: latest
 
 # ==============================================================================
@@ -111,7 +111,7 @@ api:
 jupyter:
   enabled: true
   name: jupyter
-  namespace: dev-tools
+  namespace: data-dev
   replicas: 1
   
   image:
