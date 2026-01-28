@@ -14,6 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
+      - name: Debug - Check Slack Webhook
+        run: |
+          echo "Webhook URL (masked):"
+          cat /run/secrets/slack/webhook-url | sed 's/\(hooks\/[A-Z0-9]*\/[A-Z0-9]*\/\).*/\1***MASKED***/'
+          
       - name: Determine environment
         id: env
         run: |
@@ -185,3 +190,10 @@ jobs:
                 \"ts\": $(date +%s)
               }]
             }"
+      - name: Show Runner Info
+        run: |
+          echo "Runner hostname: $(hostname)"
+          echo "Runner IP addresses:"
+          ip addr show | grep "inet " | grep -v 127.0.0.1
+          # Or alternative command
+          hostname -I
