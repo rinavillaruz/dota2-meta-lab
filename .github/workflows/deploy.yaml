@@ -5,9 +5,6 @@ on:
     branches:
       - dev
       - staging
-    # Explicitly exclude main - Jenkins handles it
-    # branches-ignore:
-    #   - main
 
 jobs:
   deploy:
@@ -30,9 +27,6 @@ jobs:
           
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -40,64 +34,47 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Build and push data-fetcher
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./build/Dockerfile.dev
-          target: data-fetcher
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker build \
+            --target data-fetcher \
+            -f ./build/Dockerfile.dev \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }} \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-latest \
+            .
+          
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-fetcher:${{ steps.env.outputs.environment }}-latest
       
       - name: Build and push trainer
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./build/Dockerfile.dev
-          target: trainer
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: |
+          docker build \
+            --target trainer \
+            -f ./build/Dockerfile.dev \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }} \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-latest \
+            .
+          
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-trainer:${{ steps.env.outputs.environment }}-latest
       
       - name: Build and push api
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./build/Dockerfile.dev
-          target: api
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Setup kubectl
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-      
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          docker build \
+            --target api \
+            -f ./build/Dockerfile.dev \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }} \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-latest \
+            .
+          
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/dota2-api:${{ steps.env.outputs.environment }}-latest
       
       - name: Deploy with Helm
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           IMAGE_TAG: ${{ steps.env.outputs.environment }}-${{ github.run_number }}-${{ github.sha }}
         run: |
-          # Install Helm
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          
-          # Deploy
+          # Helm is already installed on your Mac
           helm upgrade --install dota2-meta-lab-$ENVIRONMENT ./deploy/helm \
             -f ./deploy/helm/values-$ENVIRONMENT.yaml \
             --set image.tag=$IMAGE_TAG \
@@ -134,7 +111,7 @@ jobs:
                   {\"title\": \"Image Tag\", \"value\": \"$TAG\", \"short\": true},
                   {\"title\": \"Author\", \"value\": \"${{ github.actor }}\", \"short\": true}
                 ],
-                \"footer\": \"GitHub Actions\",
+                \"footer\": \"GitHub Actions (Self-Hosted)\",
                 \"ts\": $(date +%s)
               }]
             }"
