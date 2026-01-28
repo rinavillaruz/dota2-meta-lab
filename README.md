@@ -1,6 +1,6 @@
 # 🎮 Dota2 Meta Lab Platform
 
-[![Deploy to Environment](https://github.com/rinavillaruz/dota2-meta-lab/actions/workflows/deploy.yaml/badge.svg)](https://github.com/rinavillaruz/dota2-meta-lab/actions/workflows/deploy.yaml)
+[![Deploy to Environment](https://github.com/rinavillaruz/dota2-meta-lab/actions/workflows/deploy.yaml/badge.svg?branch=dev)](https://github.com/rinavillaruz/dota2-meta-lab/actions/workflows/deploy.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-%23326ce5.svg?style=flat&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
